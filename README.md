@@ -2,7 +2,12 @@
 
 Windows 10 / 11 64 位小工具。粘贴 B 站或 YouTube 视频链接，下载视频素材（含绿幕素材）。
 
-**👉 [点这里下载最新版](https://github.com/lin1024-star/video-material-downloader/releases/latest)** —— 下载 ZIP，完整解压后双击 `BiliGreenDownloader.exe` 就能用。
+**👉 [点这里下载最新版](https://github.com/lin1024-star/video-material-downloader/releases/latest)**
+
+> **【在哪下载】** 打开页面后**一直往下滚到最底部**，找到 **Assets** 这一段，点里面那个**带文件大小、以 `.zip` 结尾**的文件（例如 `BiliGreenDownloader_1.1.0_Windows.zip`）。
+> 它下面还有 `Source code (zip)` 和 `Source code (tar.gz)`，那是 GitHub 自动生成的源码快照，**不用点**。
+
+下载后完整解压，双击 `BiliGreenDownloader.exe` 就能用。
 
 ## 1.1.0 更新方法
 
