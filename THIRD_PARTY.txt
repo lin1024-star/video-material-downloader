@@ -1,0 +1,29 @@
+BiliGreenDownloader 1.1.0
+
+The launcher and original application source are provided under the MIT
+License (see LICENSE.txt).
+
+This package does not contain yt-dlp or FFmpeg executables. On the user's
+first download, the application obtains standalone Windows components from
+their respective publishers and verifies the published SHA-256 checksums.
+Those components retain their own licenses and are separate programs invoked
+as command-line tools. No copied third-party code is included in this GUI.
+
+yt-dlp:
+  Project / source: https://github.com/yt-dlp/yt-dlp
+  Nightly builds: https://github.com/yt-dlp/yt-dlp-nightly-builds
+  Licensing and standalone-binary notices:
+    https://github.com/yt-dlp/yt-dlp#license
+  Standalone Windows executables include third-party components and are
+  distributed under GPLv3+ as described by the upstream project.
+
+FFmpeg:
+  Project / source: https://ffmpeg.org/
+  License details: https://ffmpeg.org/legal.html
+  Windows build publisher / build information:
+    https://www.gyan.dev/ffmpeg/builds/
+  The essentials build includes GPL-enabled libraries, including libx264.
+  Consult the publisher's current release / license / source information.
+
+The program is an independent utility and is not affiliated with Bilibili,
+YouTube, Google, yt-dlp, FFmpeg, Microsoft, or Adobe.

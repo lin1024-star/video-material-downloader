@@ -1,0 +1,96 @@
+视频素材下载器 1.1.0 — 新增 YouTube 支持
+日期：2026-10-03
+
+本次变更：
+- Core.NormalizeUrl 增加 YouTube 域名白名单（www.youtube.com、youtube.com、
+  m.youtube.com、music.youtube.com、youtu.be），并新增 NormalizeYouTube：
+  从 watch?v=、youtu.be/、shorts、embed、live 链接中提取 11 位视频编号，
+  统一规范为 https://www.youtube.com/watch?v=<id>。
+- 域名匹配使用精确白名单。钓鱼域名（youtube.com.evil.com、www.youtube.com.evil.com、
+  fakeyoutube.com、evil-youtu.be）与裸编号、播放列表、频道、首页链接继续被拒绝。
+- Core.FilterCookies 增加 YouTube / Google 域名；伪造域名（fakeyoutube.com、
+  evilyoutube.com）仍被丢弃。
+- 界面与文案由“B 站素材下载器”改为“视频素材下载器”；版本号升至 1.1.0。
+- 下载参数、组件管理、转码与暂存流程未改动。
+
+本次通过的检查（Windows 10 / 11 x64 实机）：
+- 主程序与测试程序使用系统 .NET Framework 编译器编译通过（0 错误）。
+- URL 与 cookies 逻辑独立检查 47 项全部通过。
+- 官方回归套件 32 项全部通过，0 失败。含真实 FFmpeg 转码：
+  VP9 + Opus → H.264 + AAC、H.264 + AAC 直接封装、无声素材、同名不覆盖、
+  取消保留片段、失败不发布、试看拒绝、目录穿越拒绝、临时 cookies 清理、
+  重试复用暂存目录等。测试素材由本机 FFmpeg 9.0.2 生成（320×240，2 秒），
+  未使用任何第三方视频、账号凭据或下载的第三方组件。
+
+验证边界：
+- 未做 Windows 实机界面点选、真实 B 站 / YouTube 在线下载与 Premiere Pro
+  导入验证。在线可下载内容受网络、账号权限与站点风控影响。
+- YouTube 下载要求网络能访问该站点；若被要求验证身份，需先开启代理。
+
+------------- 1.0.1 修复验证（历史） -------------
+
+B 站素材下载器 1.0.1 — 修复验证
+日期：2026-09-29
+
+用户日志：更新下载组件时出现 MissingMethod / String.Split(Char,
+StringSplitOptions) 方法不存在。
+
+定位与修复：
+- 旧版本使用了宿主 Mono 的接口程序集编译。该环境支持的一些单字符
+  Split / TrimStart / TrimEnd 重载并不属于目标 .NET Framework API。
+- 检查旧二进制的 117 个方法体、201 处 String 调用，发现 6 处此类
+  不兼容调用，涉及组件下载、短链、cookies 解析和输出路径检查。
+- 改用明确的 char[] 重载，并用 Microsoft 官方发布的
+  Microsoft.NETFramework.ReferenceAssemblies.net45 1.0.3 重新编译。
+  编译开启 -nostdlib / -noconfig，显式引用目标框架的参考程序集。
+- 固定窗口版本及文件版本为 1.0.1 / 1.0.1.0。
+
+本次通过的检查：
+- 主程序及测试程序使用官方 .NET Framework 4.5 参考库编译通过。
+- 同一份二进制调用检查：旧版检出 6 处，修复版检出 0 处。
+- 修复后二进制对应源码的 31 项回归检查全部通过，包括 cookies
+  过滤、路径、输出、取消、错误处理及真实 FFmpeg 转码。
+
+验证边界：
+- 本环境额外尝试了组件 HTTPS 下载；因本地 Mono 证书验证失败
+  （CERTIFICATE_VERIFY_FAILED）未完成，未关闭证书校验或降低安全设置。
+  该项未计入通过测试，也未将该环境错误当作用户此次日志的原因。
+- 本次没有 Windows 实机环境；编译目标与接口检查不能替代所有
+  Windows 运行验证。未声称已在用户电脑上确认成功。
+- 上一版测试结果只作为流程历史保留；旧版的 Linux 运行成功不能
+  证明它符合 Windows .NET Framework 的 API 范围，这正是本次修复点。
+
+官方参考库：
+https://www.nuget.org/packages/Microsoft.NETFramework.ReferenceAssemblies.net45/1.0.3
+
+------------- 1.0 核心流程历史验证 -------------
+
+B 站素材下载器 1.0 — 验证记录
+日期：2026-09-29
+
+已完成：
+1. Windows x64 WinForms 程序编译成功。
+2. 31 项自动检查全部通过：链接限制、分 P 参数、中文 / 特殊字符、
+   登录文件过滤、日志脱敏、任务记录持久化、合并 / 转码、无声素材、
+   同名不覆盖、失败与取消、试看片段拒绝、临时文件清理及重试等。
+   下载异常由测试替身模拟；音视频探测与转换使用真实 FFmpeg。
+3. 实际下载了官方 Windows yt-dlp / FFmpeg 发布文件，核对发布的
+   SHA-256 校验值，通过程序自身的压缩包提取逻辑取得两个 FFmpeg
+   组件，确认三者均为有效的 Windows x64 PE 文件。
+4. 用真实 FFmpeg 完成 10 位 PQ HDR 测试素材到 BT.709 H.264 的转换。
+5. 使用项目当前官方下载引擎和本程序核心流程，实际下载 B 站投稿
+   BV1nx411u79K（上游自带测试链接）。完成音视频下载、合并、MP4
+   转换及最终探测。素材约 80.4 秒，实际取得 640 × 360，最终为
+   H.264 / yuv420p + AAC 的 MP4，文件 8,673,650 字节。
+   未将测试视频、任何账号凭据或下载的第三方组件放入交付压缩包。
+
+环境与限制：
+- 核心测试运行于 Linux / Mono，使用 FFmpeg 6.1.1；自动准备功能
+  下载的是官方当时发布的 Windows 构建。
+- 本环境不能启动图形显示，因此 GUI 运行检查未能完成。
+- 没有 Windows 桌面或 Premiere Pro 实机；Windows 窗口显示、组件
+  首次启动、PR 导入仍需在实际电脑上确认。没有宣称这些已测试。
+- 实际 B 站测试没有使用登录文件；不同视频的权限、清晰度、站点
+  风控和网络条件会影响可下载内容。
+
+对应测试源码在 tests 文件夹中。

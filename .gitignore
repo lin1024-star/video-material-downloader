@@ -1,0 +1,30 @@
+# ---- 临时文件与断点下载残留 ----
+*.part
+*.writing-*
+*.new
+*.unpacking
+*.tmp
+*.log
+.BiliGreen-work/
+.tmp-tests/
+
+# ---- 备份文件 ----
+*.bak
+*.bak-*
+*~
+
+# ---- Python 缓存（make_icon.py 用）----
+__pycache__/
+*.pyc
+
+# ---- 本地下载的组件（不进仓库，运行时自动获取）----
+tools/
+yt-dlp.exe
+ffmpeg.exe
+ffprobe.exe
+
+# ---- 编辑器 / 系统 ----
+.vs/
+*.user
+Thumbs.db
+desktop.ini
