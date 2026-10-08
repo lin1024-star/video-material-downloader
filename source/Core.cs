@@ -109,12 +109,29 @@ namespace BiliGreenDownloader {
         internal static bool Inside(string file,string directory){string root=Path.GetFullPath(directory).TrimEnd(new[]{Path.DirectorySeparatorChar})+Path.DirectorySeparatorChar;return Path.GetFullPath(file).StartsWith(root,Environment.OSVersion.Platform==PlatformID.Win32NT?StringComparison.OrdinalIgnoreCase:StringComparison.Ordinal);}
         internal static string FailureHint(string text) {
             string s=(text??"").ToLowerInvariant();
-            if(s.Contains("412")||s.Contains("429"))return "站点暂时限制了请求，请稍后再试；也可导入自己的 cookies 登录文件。";
-            if(s.Contains("not a bot")||s.Contains("sign in to confirm")||s.Contains("confirm you"))return "YouTube 要求验证身份（通常是把当前网络判定为数据中心）。请开启代理后重试，或导入自己的 YouTube 登录文件。";
-            if(s.Contains("login")||s.Contains("cookies")||s.Contains("premium")||s.Contains("403"))return "该视频或清晰度需要登录权限，或请求被站点拒绝。可导入自己的 cookies 登录文件后重试。";
-            if(s.Contains("404")||s.Contains("deleted")||s.Contains("not found"))return "视频不存在、已删除，或当前账号无法访问。请先确认浏览器中能正常播放。";
-            if(s.Contains("timed out")||s.Contains("resolve")||s.Contains("connection"))return "连接站点失败或超时，请检查网络后重试。已下载的片段会尽量复用。";
-            return "下载没有完成。可先点“更新下载组件”再重试；详细原因见下方日志。";
+            // 分类判断保持不变，但每条都把「引擎实际说了什么」带上 ——
+            // 只说"下载没有完成"，使用者没法提供线索，开发者也定位不了。
+            string what;string[] steps;
+            if(s.Contains("412")||s.Contains("429")){
+                what="站点暂时限制了请求（返回 412 / 429）。";
+                steps=new[]{"等几分钟再试 —— 短时间内反复重试会被限制得更久；","导入自己的 cookies 登录文件后重试，成功率通常更高；","换一个网络（比如切到手机热点）再试。"};
+            }else if(s.Contains("not a bot")||s.Contains("sign in to confirm")||s.Contains("confirm you")){
+                what="YouTube 要求验证身份（通常是把当前网络判定成了数据中心）。";
+                steps=new[]{"开启代理后再重试；","或导入自己的 YouTube 登录文件（cookies）；","确认系统时间准确 —— 偏差过大会被要求验证。"};
+            }else if(s.Contains("login")||s.Contains("cookies")||s.Contains("premium")||s.Contains("403")){
+                what="这个视频或这个清晰度需要登录权限，或者请求被站点拒绝了。";
+                steps=new[]{"先在浏览器里确认这个视频当前能正常播放；","点「导入 cookies」选自己导出的登录文件后重试；","只需要较低清晰度时，把「限制 1080p」关掉再试。"};
+            }else if(s.Contains("404")||s.Contains("deleted")||s.Contains("not found")){
+                what="视频不存在、已删除，或者当前账号访问不到。";
+                steps=new[]{"把同一个链接粘到浏览器里，确认能正常播放；","确认链接没有多复制或少复制字符；","会员限定或已删除的内容无法下载。"};
+            }else if(s.Contains("timed out")||s.Contains("resolve")||s.Contains("connection")){
+                what="连接站点失败或者超时了。";
+                steps=new[]{"检查网络；需要代理的站点请先开启代理；","稍后重试 —— 已经下好的片段会尽量复用，不会从头再来。"};
+            }else{
+                what="下载没有完成。";
+                steps=new[]{"先点「更新下载组件」把 yt-dlp 更新到最新，再重试；","换一个输出目录再试；","下面这几行引擎输出是定位问题的关键，别删掉。"};
+            }
+            return Diag.Diagnose(what,new[]{"引擎最后几行："+Diag.Tail(text,8)},steps);
         }
     }
     internal sealed class ProcessResult {public int ExitCode;public string Output,Error;}

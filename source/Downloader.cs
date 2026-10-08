@@ -40,12 +40,65 @@ namespace BiliGreenDownloader {
                 if(raw.ExitCode!=0)throw new InvalidOperationException(Core.FailureHint(raw.Error+raw.Output));
                 if(previewOnly)throw new InvalidOperationException("站点只提供了试看片段，未将它标记为完整素材。请确认账号具有完整观看权限。");
                 var lines=raw.Output.Split(new[]{'\r','\n'},StringSplitOptions.RemoveEmptyEntries).Where(x=>x.StartsWith("__BILI_RESULT__")).ToArray();
-                if(lines.Length!=1)throw new InvalidOperationException("没有取得唯一的已下载视频文件。暂时请使用普通投稿视频或明确的分 P 链接。");
+                if(lines.Length!=1){
+                    // 拿到 0 个和拿到 5 个是完全不同的两回事，必须分开说 ——
+                    // 原来两种情况报同一句话，使用者没法自查（实测踩过）。
+                    bool many=lines.Length>1;
+                    var checks=new List<string>();
+                    checks.Add(many
+                        ?"链接解析出 "+lines.Length+" 个候选（多个）—— 多半是合集、多 P 或播放列表链接"
+                        :"链接解析出 0 个候选 —— 多半是链接本身、网络，或站点改了规则");
+                    checks.Add("你填的链接："+Diag.ShortUrl(url));
+                    if(many){
+                        var titles=lines.Take(5).Select(x=>{
+                            try{return Json.Get(Json.Object(x.Substring("__BILI_RESULT__".Length)),"title","（没有标题）");}
+                            catch{return "（读不出标题）";}
+                        }).ToArray();
+                        checks.Add("解析出来的分别是："+String.Join(" / ",titles)+(lines.Length>5?" 等 "+lines.Length+" 个":""));
+                    }
+                    checks.Add("引擎最后几行："+Diag.Tail(raw.Output,6));
+                    string[] steps=many?new[]{
+                        "打开链接确认它指向的是单个视频，不是合集 / 播放列表 / 主页；",
+                        "如果是多 P 视频，用带 p= 参数的分 P 链接（例如 ...?p=3）；",
+                        "只想下合集里的某一集时，先在浏览器点进那一集，再复制地址栏的链接。"
+                    }:new[]{
+                        "先把同一个链接粘到浏览器里，确认能正常播放、不需要登录；",
+                        "需要登录才能看的（会员、充电专属、部分 YouTube 视频），先用「导入 cookies」再试；",
+                        "点「更新下载组件」把 yt-dlp 更新到最新 —— 站点改规则时旧版会解析不出东西；",
+                        "YouTube 链接若提示要验证身份，请先开启代理再重试。"
+                    };
+                    throw new InvalidOperationException(Diag.Diagnose(
+                        many?"这个链接里有多个视频，下载器不知道该下哪一个。"
+                            :"没能从这个链接解析出视频。",checks,steps,
+                        "刚才那次没有产生任何文件，输出目录是干净的，可以直接重试。"));
+                }
                 var result=Json.Object(lines[0].Substring("__BILI_RESULT__".Length));string source=Json.Get(result,"path"),title=Json.Get(result,"title","视频素材");
                 if(!Path.IsPathRooted(source))source=Path.Combine(stage,source);
-                if(!Core.Inside(source,stage)||!File.Exists(source)||new FileInfo(source).Length==0)throw new IOException("下载引擎没有生成完整文件，未记录为成功。");
+                if(!Core.Inside(source,stage)||!File.Exists(source)||new FileInfo(source).Length==0)
+                    throw new IOException(Diag.Diagnose(
+                        "下载引擎报了成功，但文件不在、或者是个 0 字节的空壳。",
+                        new[]{
+                            "引擎说文件在："+Diag.Describe(source),
+                            "临时目录里实际有："+Diag.Describe(stage)
+                        },
+                        new[]{
+                            "换一个输出目录再试一次（比如 D 盘根目录下的空文件夹）；",
+                            "确认磁盘还有空间，并且安全软件没有拦截写入；",
+                            "如果反复如此，点「更新下载组件」后再试。"
+                        }));
                 string extension=Path.GetExtension(source).ToLowerInvariant();
-                if(!new[]{".mp4",".mkv",".webm",".flv",".mov",".m4v",".avi",".ts"}.Contains(extension))throw new InvalidOperationException("下载结果不是支持的视频文件。");
+                if(!new[]{".mp4",".mkv",".webm",".flv",".mov",".m4v",".avi",".ts"}.Contains(extension))
+                    throw new InvalidOperationException(Diag.Diagnose(
+                        "下载下来的东西不是视频文件（扩展名是 "+extension+"）。",
+                        new[]{
+                            "实际拿到："+Diag.Describe(source),
+                            "支持的类型：mp4 / mkv / webm / flv / mov / m4v / avi / ts"
+                        },
+                        new[]{
+                            "这个链接多半指向的不是视频（可能是图片、音频、直播页或文档）；",
+                            "确认粘的是视频页面地址，不是分享短链被改过的地址；",
+                            "如果确实是视频，请把上面这段发给开发者。"
+                        }));
                 progress.Report(new Update("检查下载结果和编码…"));var info=MediaInfo.Probe(tools.Ffprobe,source,token);
                 log("实际素材："+info.Width+" × "+info.Height+"，视频 "+info.Video+"，"+(info.HasAudio?"音频 "+info.Audio:"无音轨"));
                 if(info.Height<720&&String.IsNullOrEmpty(cookies))log("目前取得的清晰度较低；可能是原片或站点权限所限。需要时可导入 cookies 登录文件再试。");

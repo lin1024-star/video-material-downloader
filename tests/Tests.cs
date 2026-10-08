@@ -62,6 +62,67 @@ internal static class Tests {
         Environment.SetEnvironmentVariable("BILI_TEST_MODE","ok");
         Test("retry reuses the same staging directory",()=>{var opt=Options("failed flow");Download(opt);Check(!Directory.Exists(Path.Combine(opt.Folder,".BiliGreen-work")));});
         Test("observer callback exception cannot kill runner",()=>{var r=Runner.Run(tools.Ffprobe,new[]{"-version"},root,CancellationToken.None,(s,e)=>{throw new Exception("observer error");});Check(r.ExitCode==0&&r.Output.Contains("ffprobe"));});
+        // ---- 报错信息格式（Diag）：纯函数，不需要引擎、网络或 ffmpeg ----
+        Test("Diag.Describe tells the four path states apart",()=>{
+            string tmp=Path.Combine(root,"diag_probe");if(Directory.Exists(tmp))Directory.Delete(tmp,true);
+            Directory.CreateDirectory(tmp);
+            Check(Diag.Describe(Path.Combine(tmp,"nope")).Contains("不存在"),"missing path");
+            Check(Diag.Describe(tmp).Contains("空的"),"empty dir");
+            string f=Path.Combine(tmp,"v.mp4");File.WriteAllBytes(f,new byte[1536*1024]);
+            Check(Diag.Describe(f).Contains("文件在"),"file present");
+            Check(Diag.Describe(f).Contains("1.5 MB"),"file size shown");
+            Directory.CreateDirectory(Path.Combine(tmp,"a"));File.WriteAllText(Path.Combine(tmp,"c.txt"),"x");
+            string many=Diag.Describe(tmp);
+            Check(many.Contains("里面有")&&many.Contains("v.mp4"),"lists contents");
+            Check(Diag.Describe(null).Contains("没有路径"),"null path must not throw");
+            Directory.Delete(tmp,true);
+        });
+        Test("Diag.Size uses readable units",()=>{
+            Check(Diag.Size(0)=="0 字节","bytes");
+            Check(Diag.Size(1536)=="1.5 KB","kb");
+            Check(Diag.Size(5L<<20)=="5.0 MB","mb");
+        });
+        Test("Diag.Tail keeps the last lines and never throws",()=>{
+            Check(Diag.Tail("").Contains("没有输出"),"empty input");
+            Check(Diag.Tail(null).Contains("没有输出"),"null input");
+            string t=Diag.Tail("a\r\nb\r\nc\r\nd",2);
+            Check(t.Contains("c")&&t.Contains("d"),"keeps the tail");
+            Check(t.Contains("一共 4 行"),"says how many lines were dropped");
+            Check(Diag.Tail(new string('x',500),1).Length<300,"very long line is trimmed");
+        });
+        Test("Diag.Diagnose always carries the four sections",()=>{
+            string t=Diag.Diagnose("出事了。",new[]{"检查一 —— 空的"},new[]{"点这里"},null);
+            Check(t.Contains("出事了。"),"headline");
+            Check(t.Contains("我实际看到的是："),"checks section");
+            Check(t.Contains("你可以这样办："),"steps section");
+            Check(t.Contains("发给开发者"),"tail");
+            Check(t.Contains("　· 检查一"),"check bullet");
+            Check(t.Contains("　1) 点这里"),"numbered step");
+            Check(Diag.Diagnose("x",null,null).Contains("x"),"null lists must not throw");
+        });
+        Test("failure hints keep the engine output",()=>{
+            // 老版本只给一句结论，把引擎输出丢了 —— 使用者没法提供线索。
+            string raw="ERROR: [BiliBili] Unable to download webpage: HTTP Error 404: Not Found\r\nERROR: [BiliBili] Failed to resolve";
+            string hint=Core.FailureHint(raw);
+            Check(hint.Contains("视频不存在"),"classified as 404");
+            Check(hint.Contains("我实际看到的是："),"carries the evidence");
+            Check(hint.Contains("HTTP Error 404"),"keeps the raw line");
+            Check(hint.Contains("你可以这样办："),"carries the steps");
+            Check(Core.FailureHint("Sign in to confirm you're not a bot").Contains("验证身份"),"youtube branch");
+            Check(Core.FailureHint("HTTP Error 429").Contains("限制了请求"),"rate limit branch");
+            Check(Core.FailureHint("").Contains("我实际看到的是："),"unknown branch still formatted");
+            Check(Core.FailureHint(null).Contains("我实际看到的是："),"null must not throw");
+        });
+        Test("multi-candidate failure says how many were found",()=>{
+            // 实测踩过：拿到 0 个和拿到 5 个报的是同一句话，使用者没法自查。
+            string zero=Diag.Diagnose("没能从这个链接解析出视频。",
+                new[]{"链接解析出 0 个候选 —— 多半是链接本身、网络，或站点改了规则"},new[]{"粘到浏览器里试试"});
+            Check(zero.Contains("0 个候选"),"zero case is explicit");
+            string many=Diag.Diagnose("这个链接里有多个视频，下载器不知道该下哪一个。",
+                new[]{"链接解析出 12 个候选（多个）—— 多半是合集、多 P 或播放列表链接"},new[]{"用带 p= 的分 P 链接"});
+            Check(many.Contains("12 个候选"),"many case says the count");
+            Check(many.Contains("分 P"),"many case gives the right fix");
+        });
         Console.WriteLine("RESULT "+passed+" passed, "+failed+" failed");return failed==0?0:1;
     }
 }
