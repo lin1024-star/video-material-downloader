@@ -84,3 +84,9 @@ Windows 10 / 11 64 位小工具。粘贴 B 站或 YouTube 视频链接，下载�
 详见 `VALIDATION.txt`。1.1.0 已在 Windows 10 / 11 x64 实机编译，并跑完 32 项回归检查（含真实 FFmpeg 转码、VP9→H.264、取消与失败恢复）。未做 Windows 实机界面点选与 Premiere Pro 导入验证。
 
 `source` 为主程序源码，`tests` 为测试辅助文件，普通使用不需要打开。源码可在带 .NET Framework 编译器的 Windows 电脑上运行 `source\build.cmd` 重建。
+
+回归套件在报错格式统一后增至 **38 项**（原 32 项 + 新增 6 项针对报错信息）。
+一键跑法：`tests\run_tests.cmd` —— 它会用本机 ffmpeg 生成三个测试素材
+（320×240、2 秒，不用任何第三方素材），把 `fake_engine.py` 包成 exe，
+编译测试程序并运行。ffmpeg / ffprobe / python 不在 PATH 时用环境变量指定：
+`BILI_FFMPEG`、`BILI_FFPROBE`、`BILI_TEST_PYTHON`。
