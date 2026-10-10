@@ -17,7 +17,7 @@ namespace BiliGreenDownloader {
     internal sealed class DownloadOptions {public string Url,Folder,Cookies="";public bool Limit1080,Compatible=true;}
     internal sealed class DownloadResult {public string Path,Title,Description;}
     internal static class Core {
-        internal const string Version="1.1.0";
+        internal const string Version="1.1.1";
         internal static readonly string[] BilibiliHosts=new[]{"www.bilibili.com","bilibili.com","m.bilibili.com"};
         internal static readonly string[] YouTubeHosts=new[]{"www.youtube.com","youtube.com","m.youtube.com","music.youtube.com","youtu.be","www.youtu.be"};
         internal static bool IsYouTubeHost(string host){return YouTubeHosts.Contains((host??"").ToLowerInvariant());}
