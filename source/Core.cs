@@ -14,10 +14,10 @@ using System.Threading.Tasks;
 namespace BiliGreenDownloader {
     internal sealed class Update { public string Message;public int Percent=-1; public Update(string message,int percent=-1){Message=message;Percent=percent;} }
     internal sealed class ToolPaths {public string YtDlp,Ffmpeg,Ffprobe;}
-    internal sealed class DownloadOptions {public string Url,Folder,Cookies="";public bool Limit1080,Compatible=true;}
+    internal sealed class DownloadOptions {public string Url,Folder,Cookies="";public bool Limit1080,Compatible=true,Music=false;}
     internal sealed class DownloadResult {public string Path,Title,Description;}
     internal static class Core {
-        internal const string Version="1.1.1";
+        internal const string Version="1.2.0";
         internal static readonly string[] BilibiliHosts=new[]{"www.bilibili.com","bilibili.com","m.bilibili.com"};
         internal static readonly string[] YouTubeHosts=new[]{"www.youtube.com","youtube.com","m.youtube.com","music.youtube.com","youtu.be","www.youtu.be"};
         internal static bool IsYouTubeHost(string host){return YouTubeHosts.Contains((host??"").ToLowerInvariant());}
@@ -98,8 +98,17 @@ namespace BiliGreenDownloader {
         }
         internal static bool IsBilibiliDomain(string domain){return domain=="bilibili.com"||domain.EndsWith(".bilibili.com",StringComparison.Ordinal);}
         internal static bool IsYouTubeDomain(string domain){return domain=="youtube.com"||domain.EndsWith(".youtube.com",StringComparison.Ordinal)||domain=="google.com"||domain.EndsWith(".google.com",StringComparison.Ordinal)||domain=="youtu.be"||domain.EndsWith(".youtu.be",StringComparison.Ordinal);}
-        internal static List<string> DownloadArgs(string url,string stage,string cookie,ToolPaths tools,bool limit1080) {
-            var a=new List<string>{"--ignore-config","--no-plugin-dirs","--no-playlist","--playlist-items","1","--no-simulate","--newline","--progress","--no-colors","--encoding","utf-8","--windows-filenames","--continue","--retries","3","--fragment-retries","3","--abort-on-unavailable-fragments","--socket-timeout","25","--concurrent-fragments","2","--ffmpeg-location",Path.GetDirectoryName(tools.Ffmpeg),"-f","bv*+ba/b/bv*","-S",limit1080?"res:1080,vcodec:h264,acodec:aac":"res,vcodec:h264,acodec:aac","--merge-output-format","mkv","-P",stage,"-o","source.%(ext)s","--print","after_move:__BILI_RESULT__{\"path\":%(filepath)j,\"title\":%(title)j,\"id\":%(id)j}"};
+        internal static List<string> DownloadArgs(string url,string stage,string cookie,ToolPaths tools,bool limit1080,bool music=false) {
+            var a=new List<string>{"--ignore-config","--no-plugin-dirs","--no-playlist","--playlist-items","1","--no-simulate","--newline","--progress","--no-colors","--encoding","utf-8","--windows-filenames","--continue","--retries","3","--fragment-retries","3","--abort-on-unavailable-fragments","--socket-timeout","25","--concurrent-fragments","2","--ffmpeg-location",Path.GetDirectoryName(tools.Ffmpeg)};
+            if(music){
+                // 只下载音乐：取最好的纯音频轨，交给 yt-dlp 用 ffmpeg 转成 MP3。
+                // 注意不要沿用下面那组选画面的条件（-S res/vcodec）—— 对纯音频没有意义，
+                // 而且会和 -f bestaudio 打架。
+                a.AddRange(new[]{"-f","bestaudio/best","-S","abr","--extract-audio","--audio-format","mp3","--audio-quality","0"});
+            }else{
+                a.AddRange(new[]{"-f","bv*+ba/b/bv*","-S",limit1080?"res:1080,vcodec:h264,acodec:aac":"res,vcodec:h264,acodec:aac","--merge-output-format","mkv"});
+            }
+            a.AddRange(new[]{"-P",stage,"-o","source.%(ext)s","--print","after_move:__BILI_RESULT__{\"path\":%(filepath)j,\"title\":%(title)j,\"id\":%(id)j}"});
             if(!String.IsNullOrEmpty(cookie))a.AddRange(new[]{"--cookies",cookie});a.Add("--");a.Add(url);return a;
         }
         internal static void AtomicText(string path,string value) {
@@ -156,15 +165,20 @@ namespace BiliGreenDownloader {
         public string Video="",Audio="",Pixel="",Transfer="",Rate="",Average="";public int Width,Height;public double Duration;
         public bool HasAudio{get{return Audio!="";}}public bool Hdr{get{return Transfer=="smpte2084"||Transfer=="arib-std-b67";}}
         public bool CanCopy {get{return Video=="h264"&&Pixel=="yuv420p"&&!Hdr&&(!HasAudio||Audio=="aac")&&(String.IsNullOrEmpty(Rate)||String.IsNullOrEmpty(Average)||Rate==Average);}}
-        internal static MediaInfo Parse(string json){
+        internal static MediaInfo Parse(string json,bool requireVideo=true){
             var root=Json.Object(json);var result=new MediaInfo();object value;
             if(root.TryGetValue("format",out value)){var format=value as Dictionary<string,object>;Double.TryParse(Json.Get(format,"duration"),NumberStyles.Float,CultureInfo.InvariantCulture,out result.Duration);}
             if(root.TryGetValue("streams",out value))foreach(var row in (List<object>)value){var stream=row as Dictionary<string,object>;string type=Json.Get(stream,"codec_type");if(type=="video"&&result.Video==""){result.Video=Json.Get(stream,"codec_name");result.Pixel=Json.Get(stream,"pix_fmt");result.Transfer=Json.Get(stream,"color_transfer");result.Rate=Json.Get(stream,"r_frame_rate");result.Average=Json.Get(stream,"avg_frame_rate");Int32.TryParse(Json.Get(stream,"width"),out result.Width);Int32.TryParse(Json.Get(stream,"height"),out result.Height);}else if(type=="audio"&&result.Audio=="")result.Audio=Json.Get(stream,"codec_name");}
-            if(result.Video=="")throw new InvalidOperationException("文件中没有可读取的视频轨道。");return result;
+            // 只下载音乐时没有视频轨，这是正常的 —— 那种情况下改要求"必须有声音"。
+            if(result.Video==""){
+                if(requireVideo)throw new InvalidOperationException("文件中没有可读取的视频轨道。");
+                if(!result.HasAudio)throw new InvalidOperationException("这个文件里既没有画面，也没有声音。");
+            }
+            return result;
         }
-        internal static MediaInfo Probe(string exe,string file,CancellationToken token) {
+        internal static MediaInfo Probe(string exe,string file,CancellationToken token,bool requireVideo=true) {
             var r=Runner.Run(exe,new[]{"-v","error","-show_streams","-show_format","-of","json",file},Path.GetDirectoryName(file),token);
-            if(r.ExitCode!=0)throw new InvalidOperationException("无法确认视频完整性，未将它标记为成功。 "+Core.Redact(r.Error));return Parse(r.Output);
+            if(r.ExitCode!=0)throw new InvalidOperationException("无法确认"+(requireVideo?"视频":"音频")+"完整性，未将它标记为成功。 "+Core.Redact(r.Error));return Parse(r.Output,requireVideo);
         }
         internal static List<string> ConvertArgs(string input,string output,MediaInfo info,bool forceTranscode=false) {
             var args=new List<string>{"-hide_banner","-nostdin","-y","-threads","2","-filter_threads","2","-i",input,"-map","0:v:0","-map","0:a:0?","-sn","-dn"};

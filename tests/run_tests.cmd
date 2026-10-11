@@ -2,7 +2,7 @@
 rem One-click regression suite for BiliGreenDownloader.
 rem
 rem Steps:
-rem   1. generate three test fixtures with local ffmpeg (320x240, 2s, no third-party media)
+rem   1. generate four test fixtures with local ffmpeg (320x240, 2s, no third-party media)
 rem   2. wrap tests\fake_engine.py into an exe (Core.Runner cannot launch .py directly)
 rem   3. compile the test program
 rem   4. run it and report
@@ -57,6 +57,13 @@ rem video only, no audio track
 "%BILI_FFMPEG%" -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=320x240:rate=25:duration=2" -c:v libx264 -pix_fmt yuv420p -an "%FIX%\silent.mp4"
 if errorlevel 1 (
   echo [ERROR] failed to build silent.mp4
+  exit /b 1
+)
+
+rem audio only, no video track (for the music-only mode)
+"%BILI_FFMPEG%" -hide_banner -loglevel error -y -f lavfi -i "sine=frequency=440:duration=2" -c:a libmp3lame -b:a 128k "%FIX%\audio.mp3"
+if errorlevel 1 (
+  echo [ERROR] failed to build audio.mp3 - does this ffmpeg have libmp3lame?
   exit /b 1
 )
 

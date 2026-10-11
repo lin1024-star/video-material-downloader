@@ -9,7 +9,11 @@ import time
 
 args = sys.argv[1:]
 stage = Path(args[args.index('-P') + 1])
-fixture = Path(os.environ['BILI_TEST_FIXTURE'])
+# 只下载音乐时，真实 yt-dlp 会 --extract-audio 出一个纯音频文件；
+# 这里照做，好让「没有视频轨也要能通过检查」那条路真的被测到。
+music = '--extract-audio' in args
+fixture = Path(os.environ['BILI_TEST_FIXTURE_MUSIC'] if music and 'BILI_TEST_FIXTURE_MUSIC' in os.environ
+               else os.environ['BILI_TEST_FIXTURE'])
 mode = os.environ.get('BILI_TEST_MODE', 'ok')
 if '--cookies' in args:
     data = Path(args[args.index('--cookies') + 1]).read_text()

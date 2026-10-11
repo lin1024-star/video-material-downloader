@@ -1,3 +1,52 @@
+视频素材下载器 1.2.0
+日期：2026-10-10
+
+本次变更：**新增「只下载音乐」**（需求由使用者提出）。版本号 1.1.1 → 1.2.0
+（source/Core.cs 的 Version；source/AssemblyInfo.cs 的 AssemblyVersion / AssemblyFileVersion）。
+
+做了什么
+- UI 新增勾选框「只下载音乐」，勾上后旁边的「PR 兼容 MP4」自动置灰（那个选项管的是
+  画面编码，没有画面就没意义）。勾选状态写进 settings.json，下次打开还在。
+- yt-dlp 参数走音频那条路：`-f bestaudio/best -S abr --extract-audio --audio-format mp3
+  --audio-quality 0`；**不带**视频那组 `-S res,vcodec:h264,acodec:aac` 和
+  `--merge-output-format`（那是选画面/合并音视频轨的，对纯音频没意义，而且会和
+  `-f bestaudio` 打架）。
+- 输出 MP3，文件名后缀 `_音乐`。不转 MP4，所以通常比下视频快。
+- 临时工作目录的哈希**加上了模式位** —— 否则同一个链接先后用视频模式和音乐模式下载时，
+  会复用到上一次那个不对的源文件。
+
+一个必须改的地方（不改就一定失败）
+- `MediaInfo.Parse` 原来硬性要求"必须有视频轨"，纯音频文件会被判成失败。
+  现在加了 `requireVideo` 参数：默认仍然是 true（视频模式行为不变），
+  音乐模式传 false，改成要求"必须有声音"。`Probe` 同样加了该参数。
+- 顺带把 `Probe` 的报错文案从"无法确认视频完整性"改成按模式说"视频/音频完整性"。
+
+本次通过的检查（Windows 10 / 11 x64 实机）
+- 回归套件 **43 项全部通过，0 失败**（原 38 + 新增 5）。
+- 新增的 5 项：
+  1. 音乐模式的 yt-dlp 参数正确（有 `--extract-audio`、`-f bestaudio/best`，
+     且**没有**视频那组 `-S res,vcodec` 与 `--merge-output-format`）
+  2. 视频模式不受影响（仍然要画面、不做 `--extract-audio`）
+  3. `MediaInfo.Parse` 只带音轨的 JSON：`requireVideo:false` 通过；默认仍拒绝；
+     既没画面也没声音时两种都要报错
+  4. **端到端**：音乐模式产出 `_音乐.mp3`、描述以"音乐"开头、临时目录已清理、
+     进度到 100%、日志里**不出现 MP4**。这一项**故意把 `Compatible` 传成 true**，
+     验证音乐模式自己会忽略它，不会跑去走 MP4 那条路
+  5. **换模式不串目录**：同一个链接先用视频模式、再用音乐模式下载到同一个文件夹，
+     两个文件都在（`_PR.mp4` 和 `_音乐.mp3`）
+- 测试素材新增一个**真实的纯音频文件**（`ffmpeg -f lavfi -i sine -c:a libmp3lame`，
+  2 秒），这样第 3、4 项测的是真的"没有视频轨"，而不是把视频改个名。
+- 主程序用 source\build.cmd 重新编译，0 错误；产物 93,184 字节、FileVersion 1.2.0.0
+  （1.1.1 是 90,624 字节）。
+
+验证边界
+- **「只下载音乐」的实机界面点选没做**（只有自动化测试）—— 勾选框、置灰联动、
+  设置记忆这三处都需要人工点一遍。
+- **没有用真实的 B 站 / YouTube 链接跑过音乐模式** —— 自动化测试里的"引擎"是
+  fake_engine，它只是把 fixture 复制成 source.mp3。真实链路上 yt-dlp 的
+  `--extract-audio` 是否在所有站点都按预期工作，需要实机确认。
+- 未做 Windows 实机界面全量点选与 Premiere Pro 导入验证（沿用此前结论）。
+
 视频素材下载器 1.1.1
 日期：2026-10-10
 

@@ -16,18 +16,18 @@ namespace BiliGreenDownloader {
         public static Job Read(Dictionary<string,object> d){return new Job{Time=Json.Get(d,"time"),Title=Json.Get(d,"title"),Status=Json.Get(d,"status"),Path=Json.Get(d,"path"),Detail=Json.Get(d,"detail")};}
     }
     internal sealed class AppState {
-        public string Folder="";public bool Limit1080,Compatible=true;public readonly List<Job> Jobs=new List<Job>();
+        public string Folder="";public bool Limit1080,Compatible=true,Music=false;public readonly List<Job> Jobs=new List<Job>();
         public static AppState Load(string file){
             var state=new AppState();if(!File.Exists(file))return state;
-            var d=Json.Object(File.ReadAllText(file,Encoding.UTF8));state.Folder=Json.Get(d,"folder");state.Limit1080=Json.Get(d,"limit1080")=="True";state.Compatible=Json.Get(d,"compatible","True")!="False";
+            var d=Json.Object(File.ReadAllText(file,Encoding.UTF8));state.Folder=Json.Get(d,"folder");state.Limit1080=Json.Get(d,"limit1080")=="True";state.Compatible=Json.Get(d,"compatible","True")!="False";state.Music=Json.Get(d,"music")=="True";
             object rows;if(d.TryGetValue("jobs",out rows)&&rows is List<object>)foreach(var item in ((List<object>)rows).Take(50)){var row=item as Dictionary<string,object>;if(row==null)continue;var job=Job.Read(row);if(job.Status=="处理中"){job.Status="已中断";job.Detail="软件上次关闭时尚未完成，可重新下载以复用片段。";}state.Jobs.Add(job);}return state;
         }
-        public void Save(string file){Core.AtomicText(file,Json.Write(new Dictionary<string,object>{{"folder",Folder},{"limit1080",Limit1080},{"compatible",Compatible},{"jobs",Jobs.Take(50).Select(j=>j.Data()).ToList()}}));}
+        public void Save(string file){Core.AtomicText(file,Json.Write(new Dictionary<string,object>{{"folder",Folder},{"limit1080",Limit1080},{"compatible",Compatible},{"music",Music},{"jobs",Jobs.Take(50).Select(j=>j.Data()).ToList()}}));}
     }
     internal sealed class MainForm:Form {
         readonly TextBox link=new TextBox(),folder=new TextBox(),logBox=new TextBox();
         readonly Button start=new Button(),cancel=new Button(),choose=new Button(),cookies=new Button(),clearCookie=new Button(),update=new Button(),import=new Button();
-        readonly ComboBox quality=new ComboBox();readonly CheckBox compatible=new CheckBox();
+        readonly ComboBox quality=new ComboBox();readonly CheckBox compatible=new CheckBox(),music=new CheckBox();
         readonly Label status=new Label(),cookieLabel=new Label();readonly ProgressBar bar=new ProgressBar();
         readonly ListView history=new ListView();readonly TabControl tabs=new TabControl();readonly ToolTip tips=new ToolTip();
         readonly string stateFile=Path.Combine(RuntimeSetup.Root,"settings.json"),logFile=Path.Combine(RuntimeSetup.Root,"latest.log");
@@ -59,6 +59,9 @@ namespace BiliGreenDownloader {
             quality.DropDownStyle=ComboBoxStyle.DropDownList;quality.Width=210;quality.Items.AddRange(new object[]{"当前可用的最高画质","优先 1080P 及以下"});quality.Margin=new Padding(0,3,18,0);choices.Controls.Add(quality);
             compatible.Text="PR 兼容 MP4";compatible.AutoSize=true;compatible.Margin=new Padding(0,7,0,0);choices.Controls.Add(compatible);
             tips.SetToolTip(compatible,"已兼容的编码直接封装；不兼容的编码转为 H.264 + AAC。转码会使用 CPU，且有少量画质损失。");
+            music.Text="只下载音乐";music.AutoSize=true;music.Margin=new Padding(18,7,0,0);choices.Controls.Add(music);
+            tips.SetToolTip(music,"只取声音、不下载画面，保存为 MP3。勾上之后「PR 兼容 MP4」会自动置灰 —— 那个选项管的是画面编码，没有画面就没意义。");
+            music.CheckedChanged+=(s,e)=>{compatible.Enabled=!music.Checked&&!busy;};
             box.Controls.Add(Label("登录信息"),0,3);var auth=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false,Margin=new Padding(0)};box.Controls.Add(auth,1,3);box.SetColumnSpan(auth,2);
             Configure(cookies,"选择 cookies.txt",149,ChooseCookies);auth.Controls.Add(cookies);Configure(clearCookie,"清除",64,(s,e)=>{cookiePath="";cookieLabel.Text="未导入 · 可先直接下载";});auth.Controls.Add(clearCookie);cookieLabel.Text="未导入 · 可先直接下载";cookieLabel.AutoSize=true;cookieLabel.Margin=new Padding(4,7,0,0);auth.Controls.Add(cookieLabel);
             var hint=Label("支持 B 站（BV 号 / 视频链接 / b23.tv 短链）与 YouTube（watch、youtu.be、shorts）；B 站分 P 链接下载指定的一 P。");hint.Font=new Font(Font.FontFamily,8.5F);hint.ForeColor=Color.FromArgb(93,105,119);box.Controls.Add(hint,0,4);box.SetColumnSpan(hint,3);
@@ -79,11 +82,11 @@ namespace BiliGreenDownloader {
             var logButtons=new FlowLayoutPanel{Dock=DockStyle.Fill,Margin=new Padding(0,5,0,0)};logButtons.Controls.Add(Button("复制日志",104,(s,e)=>{try{if(logBox.Text.Length>0)Clipboard.SetText(logBox.Text);}catch(Exception ex){ShowError(ex.Message);}}));logButtons.Controls.Add(Button("导出日志",104,ExportLog));logLayout.Controls.Add(logButtons,0,1);
             var foot=Label("失败和取消也会留下记录。重复下载同一链接时会尽量续传；同名素材不会覆盖。");foot.Font=new Font(Font.FontFamily,8.5F);foot.ForeColor=Color.FromArgb(103,113,126);root.Controls.Add(foot,0,7);
         }
-        void LoadSettings(){string defaultFolder=Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);if(String.IsNullOrWhiteSpace(defaultFolder))defaultFolder=Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);folder.Text=String.IsNullOrWhiteSpace(state.Folder)?Path.Combine(defaultFolder,"视频素材"):state.Folder;quality.SelectedIndex=state.Limit1080?1:0;compatible.Checked=state.Compatible;}
-        void SaveState(){try{state.Folder=folder.Text;state.Limit1080=quality.SelectedIndex==1;state.Compatible=compatible.Checked;state.Save(stateFile);}catch(Exception ex){AppendLog("保存下载记录 / 设置失败："+ex.Message);}}
+        void LoadSettings(){string defaultFolder=Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);if(String.IsNullOrWhiteSpace(defaultFolder))defaultFolder=Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);folder.Text=String.IsNullOrWhiteSpace(state.Folder)?Path.Combine(defaultFolder,"视频素材"):state.Folder;quality.SelectedIndex=state.Limit1080?1:0;compatible.Checked=state.Compatible;music.Checked=state.Music;compatible.Enabled=!music.Checked;}
+        void SaveState(){try{state.Folder=folder.Text;state.Limit1080=quality.SelectedIndex==1;state.Compatible=compatible.Checked;state.Music=music.Checked;state.Save(stateFile);}catch(Exception ex){AppendLog("保存下载记录 / 设置失败："+ex.Message);}}
         void RenderHistory(){history.BeginUpdate();history.Items.Clear();foreach(var j in state.Jobs.Take(50)){var item=new ListViewItem(new[]{j.Time,j.Status,j.Title,j.Detail}){Tag=j};if(j.Status=="成功")item.ForeColor=Color.FromArgb(20,123,67);else if(j.Status=="失败")item.ForeColor=Color.FromArgb(178,52,41);history.Items.Add(item);}history.EndUpdate();}
         Job NewJob(string title){var job=new Job{Time=DateTime.Now.ToString("MM-dd HH:mm:ss"),Title=title,Status="处理中",Detail="准备组件 / 解析视频"};state.Jobs.Insert(0,job);if(state.Jobs.Count>50)state.Jobs.RemoveRange(50,state.Jobs.Count-50);RenderHistory();SaveState();return job;}
-        void SetBusy(bool value){busy=value;start.Enabled=choose.Enabled=link.Enabled=folder.Enabled=quality.Enabled=compatible.Enabled=cookies.Enabled=clearCookie.Enabled=update.Enabled=import.Enabled=!value;cancel.Enabled=value;}
+        void SetBusy(bool value){busy=value;start.Enabled=choose.Enabled=link.Enabled=folder.Enabled=quality.Enabled=cookies.Enabled=clearCookie.Enabled=update.Enabled=import.Enabled=music.Enabled=!value;compatible.Enabled=!value&&!music.Checked;cancel.Enabled=value;}
         IProgress<Update> Progress(){return new Progress<Update>(u=>{if(IsDisposed||!busy)return;status.Text=u.Message;bar.Style=u.Percent<0?ProgressBarStyle.Marquee:ProgressBarStyle.Continuous;if(u.Percent>=0)bar.Value=Math.Max(0,Math.Min(100,u.Percent));});}
         void AppendLog(string text){
             if(IsDisposed)return;if(InvokeRequired){try{BeginInvoke(new Action<string>(AppendLog),text);}catch(InvalidOperationException){}return;}
@@ -92,8 +95,8 @@ namespace BiliGreenDownloader {
         }
         async void StartDownload(object sender,EventArgs e){
             if(busy)return;DownloadOptions options;
-            try{options=new DownloadOptions{Url=Core.NormalizeUrl(link.Text),Folder=Path.GetFullPath(folder.Text),Limit1080=quality.SelectedIndex==1,Compatible=compatible.Checked,Cookies=cookiePath};}catch(Exception ex){ShowError(ex.Message);return;}
-            var job=NewJob(options.Url);SetBusy(true);cancellation=new CancellationTokenSource();var token=cancellation.Token;var progress=Progress();tabs.SelectedIndex=0;AppendLog("开始下载任务；"+(options.Compatible?"输出 PR 兼容 MP4":"保留原始编码"));
+            try{options=new DownloadOptions{Url=Core.NormalizeUrl(link.Text),Folder=Path.GetFullPath(folder.Text),Limit1080=quality.SelectedIndex==1,Compatible=compatible.Checked&&!music.Checked,Music=music.Checked,Cookies=cookiePath};}catch(Exception ex){ShowError(ex.Message);return;}
+            var job=NewJob(options.Url);SetBusy(true);cancellation=new CancellationTokenSource();var token=cancellation.Token;var progress=Progress();tabs.SelectedIndex=0;AppendLog("开始下载任务；"+(options.Music?"只下载音乐（MP3）":(options.Compatible?"输出 PR 兼容 MP4":"保留原始编码")));
             try{
                 var result=await Task.Run(()=>{var tools=RuntimeSetup.Ensure(token,progress);return Downloader.Download(options,tools,token,progress,AppendLog);});
                 job.Title=result.Title;job.Path=result.Path;job.Status="成功";job.Detail=result.Description;status.Text="已保存："+Path.GetFileName(result.Path);bar.Style=ProgressBarStyle.Continuous;bar.Value=100;AppendLog("下载完成："+Path.GetFileName(result.Path));

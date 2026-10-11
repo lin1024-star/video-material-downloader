@@ -47,6 +47,50 @@ internal static class Tests {
         Environment.SetEnvironmentVariable("BILI_TEST_FIXTURE",Path.Combine(fixtureDir,"vp9.webm"));
         Test("full VP9 Opus conversion emits H264 AAC",()=>{var r=Download(Options("transcode flow"));var info=MediaInfo.Probe(tools.Ffprobe,r.Path,CancellationToken.None);Check(info.Video=="h264"&&info.Audio=="aac"&&info.Pixel=="yuv420p"&&info.Duration>1.8);});
         Test("original encoding output retains exact source bytes",()=>{var r=Download(Options("original flow",false));Check(Core.Hash(r.Path)==Core.Hash(Path.Combine(fixtureDir,"vp9.webm")));});
+        // ---- 只下载音乐（1.2.0 新功能）----
+        Test("music mode asks yt-dlp for audio only",()=>{
+            var a=Core.DownloadArgs("https://www.bilibili.com/video/BV13x41117TL",Path.Combine(root,"music args"),"",tools,false,true);
+            Check(a.Contains("--extract-audio")&&a.Contains("--audio-format")&&a[a.IndexOf("--audio-format")+1]=="mp3");
+            Check(a[a.IndexOf("-f")+1]=="bestaudio/best");
+            Check(!a.Contains("res,vcodec:h264,acodec:aac")&&!a.Contains("res:1080,vcodec:h264,acodec:aac"),"音乐模式不应带上选画面的条件");
+            Check(!a.Contains("--merge-output-format"),"音乐模式不需要合并音视频轨");
+            Check(a[a.Count-2]=="--"&&a[a.Count-1].Contains("bilibili"),"链接必须放在 -- 之后");
+        });
+        Test("video mode still asks for video",()=>{
+            var a=Core.DownloadArgs("https://www.bilibili.com/video/BV13x41117TL",Path.Combine(root,"video args"),"",tools,false);
+            Check(a.Contains("--merge-output-format")&&a.Contains("bv*+ba/b/bv*")&&!a.Contains("--extract-audio"));
+        });
+        Test("audio-only material passes the probe when video is not required",()=>{
+            string json="{\"format\":{\"duration\":\"12.5\"},\"streams\":[{\"codec_type\":\"audio\",\"codec_name\":\"mp3\"}]}";
+            var m=MediaInfo.Parse(json,false);Check(m.Video==""&&m.Audio=="mp3"&&m.HasAudio&&m.Duration>12);
+            Throws(()=>MediaInfo.Parse(json));                                    // 默认仍然要求有画面
+            Throws(()=>MediaInfo.Parse("{\"format\":{},\"streams\":[]}",false));   // 没画面也没声音要报错
+        });
+        Test("music-only download lands as _音乐.mp3 and skips MP4 conversion",()=>{
+            Environment.SetEnvironmentVariable("BILI_TEST_FIXTURE",Path.Combine(fixtureDir,"h264.mkv"));
+            Environment.SetEnvironmentVariable("BILI_TEST_FIXTURE_MUSIC",Path.Combine(fixtureDir,"audio.mp3"));
+            var sink=new Sink();var logs=new List<string>();
+            // 故意把 Compatible 传成 true：音乐模式下必须自己忽略它，不能去走 MP4 那条路。
+            var opt=new DownloadOptions{Url="BV13x41117TL",Folder=Path.Combine(root,"music flow"),Compatible=true,Music=true};
+            var result=Download(opt,sink,s=>logs.Add(s));
+            Check(result.Path.EndsWith("_音乐.mp3"),"实际文件名："+Path.GetFileName(result.Path));
+            Check(File.Exists(result.Path)&&new FileInfo(result.Path).Length>0);
+            Check(result.Description.StartsWith("音乐"),"描述："+result.Description);
+            Check(!Directory.Exists(Path.Combine(root,"music flow",".BiliGreen-work")));
+            Check(sink.Items.Last().Percent==100);
+            Check(!String.Join("\n",logs).Contains("MP4"),"音乐模式不该出现 MP4 处理日志");
+            Environment.SetEnvironmentVariable("BILI_TEST_FIXTURE_MUSIC",null);
+        });
+        Test("switching mode does not reuse the other mode's staging folder",()=>{
+            Environment.SetEnvironmentVariable("BILI_TEST_FIXTURE",Path.Combine(fixtureDir,"h264.mkv"));
+            Environment.SetEnvironmentVariable("BILI_TEST_FIXTURE_MUSIC",Path.Combine(fixtureDir,"audio.mp3"));
+            string folder=Path.Combine(root,"mode switch");
+            var video=Download(new DownloadOptions{Url="BV13x41117TL",Folder=folder,Compatible=true});
+            var music=Download(new DownloadOptions{Url="BV13x41117TL",Folder=folder,Compatible=true,Music=true});
+            Check(video.Path.EndsWith("_PR.mp4")&&music.Path.EndsWith("_音乐.mp3"));
+            Check(File.Exists(video.Path)&&File.Exists(music.Path));
+            Environment.SetEnvironmentVariable("BILI_TEST_FIXTURE_MUSIC",null);
+        });
         Environment.SetEnvironmentVariable("BILI_TEST_FIXTURE",Path.Combine(fixtureDir,"silent.mp4"));
         Test("full silent-video flow completes",()=>{var r=Download(Options("silent flow"));Check(!MediaInfo.Probe(tools.Ffprobe,r.Path,CancellationToken.None).HasAudio);});
         Test("temporary cookies are filtered and removed on success",()=>{var opt=Options("cookies success");opt.Cookies=Path.Combine(root,"cookies-input.txt");Download(opt);Check(!Directory.GetFiles(opt.Folder,"cookies.txt",SearchOption.AllDirectories).Any());});

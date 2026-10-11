@@ -16,7 +16,9 @@ namespace BiliGreenDownloader {
             string workRoot=Path.Combine(outputFolder,".BiliGreen-work");Directory.CreateDirectory(workRoot);
             if((File.GetAttributes(workRoot)&FileAttributes.ReparsePoint)!=0)throw new IOException("临时工作目录不能是目录链接，请选择另一个输出文件夹。");
             if(Environment.OSVersion.Platform==PlatformID.Win32NT)File.SetAttributes(workRoot,File.GetAttributes(workRoot)|FileAttributes.Hidden);
-            string stage=Path.Combine(workRoot,Core.TextHash(url+"\n"+options.Limit1080+"\n"+Core.TextHash(cookies)).Substring(0,20));Directory.CreateDirectory(stage);
+            // 音乐模式和视频模式下载到的源文件不一样，临时目录必须分开 ——
+            // 否则同一个链接换模式重试时，会复用上一次那个不对的源文件。
+            string stage=Path.Combine(workRoot,Core.TextHash(url+"\n"+options.Limit1080+"\n"+options.Music+"\n"+Core.TextHash(cookies)).Substring(0,20));Directory.CreateDirectory(stage);
             if((File.GetAttributes(stage)&FileAttributes.ReparsePoint)!=0)throw new IOException("临时目录不是普通文件夹。");
             string marker=Path.Combine(stage,"BiliGreen.work");
             if(Directory.GetFileSystemEntries(stage).Length>0&&!File.Exists(marker))throw new IOException("临时目录中存在未知文件，请更换输出目录。");
@@ -25,14 +27,15 @@ namespace BiliGreenDownloader {
             bool completed=false;
             try {
                 if(cookiePath!="")File.WriteAllText(cookiePath,cookies,new UTF8Encoding(false));
-                progress.Report(new Update("解析视频并下载音视频…"));bool previewOnly=false;object eventGate=new object();
-                var raw=Runner.Run(tools.YtDlp,Core.DownloadArgs(url,stage,cookiePath,tools,options.Limit1080),stage,token,(line,error)=>{
+                progress.Report(new Update(options.Music?"解析并下载音频…":"解析视频并下载音视频…"));bool previewOnly=false;object eventGate=new object();
+                var raw=Runner.Run(tools.YtDlp,Core.DownloadArgs(url,stage,cookiePath,tools,options.Limit1080,options.Music),stage,token,(line,error)=>{
                     if(line.StartsWith("__BILI_RESULT__"))return;
                     lock(eventGate){
                         if(line.IndexOf("only the preview",StringComparison.OrdinalIgnoreCase)>=0||line.Contains("试看"))previewOnly=true;
                         var m=Regex.Match(line,@"\[download\]\s+(\d+(?:\.\d+)?)%");double percent;
-                        if(m.Success&&Double.TryParse(m.Groups[1].Value,NumberStyles.Float,CultureInfo.InvariantCulture,out percent))progress.Report(new Update("下载音视频："+percent.ToString("0.0",CultureInfo.InvariantCulture)+"%",Math.Min(99,(int)percent)));
+                        if(m.Success&&Double.TryParse(m.Groups[1].Value,NumberStyles.Float,CultureInfo.InvariantCulture,out percent))progress.Report(new Update((options.Music?"下载音频：":"下载音视频：")+percent.ToString("0.0",CultureInfo.InvariantCulture)+"%",Math.Min(99,(int)percent)));
                         else if(line.Contains("[Merger]")||line.Contains("[Fixup"))progress.Report(new Update("合并音视频轨道…"));
+                        else if(line.Contains("[ExtractAudio]"))progress.Report(new Update("提取音频并转成 MP3…"));
                         if(!m.Success)log(Core.Redact(line));
                     }
                 });
@@ -87,23 +90,34 @@ namespace BiliGreenDownloader {
                             "如果反复如此，点「更新下载组件」后再试。"
                         }));
                 string extension=Path.GetExtension(source).ToLowerInvariant();
-                if(!new[]{".mp4",".mkv",".webm",".flv",".mov",".m4v",".avi",".ts"}.Contains(extension))
+                string[] allowed=options.Music
+                    ?new[]{".mp3",".m4a",".aac",".opus",".ogg",".oga",".wav",".flac",".weba"}
+                    :new[]{".mp4",".mkv",".webm",".flv",".mov",".m4v",".avi",".ts"};
+                if(!allowed.Contains(extension))
                     throw new InvalidOperationException(Diag.Diagnose(
-                        "下载下来的东西不是视频文件（扩展名是 "+extension+"）。",
+                        "下载下来的东西不是"+(options.Music?"音频":"视频")+"文件（扩展名是 "+extension+"）。",
                         new[]{
                             "实际拿到："+Diag.Describe(source),
-                            "支持的类型：mp4 / mkv / webm / flv / mov / m4v / avi / ts"
+                            "支持的类型："+String.Join(" / ",allowed.Select(x=>x.TrimStart('.')))
                         },
-                        new[]{
+                        options.Music?new[]{
+                            "确认粘的是有声音的视频页面地址（图片页、文档页、纯文字页没有音频）；",
+                            "如果这个视频本身就没有声音，换一个再试；",
+                            "如果确实是有声视频，请把上面这段发给开发者。"
+                        }:new[]{
                             "这个链接多半指向的不是视频（可能是图片、音频、直播页或文档）；",
                             "确认粘的是视频页面地址，不是分享短链被改过的地址；",
                             "如果确实是视频，请把上面这段发给开发者。"
                         }));
-                progress.Report(new Update("检查下载结果和编码…"));var info=MediaInfo.Probe(tools.Ffprobe,source,token);
-                log("实际素材："+info.Width+" × "+info.Height+"，视频 "+info.Video+"，"+(info.HasAudio?"音频 "+info.Audio:"无音轨"));
-                if(info.Height<720&&String.IsNullOrEmpty(cookies))log("目前取得的清晰度较低；可能是原片或站点权限所限。需要时可导入 cookies 登录文件再试。");
+                progress.Report(new Update("检查下载结果和编码…"));var info=MediaInfo.Probe(tools.Ffprobe,source,token,!options.Music);
+                if(options.Music){
+                    log("实际音频："+info.Audio+(info.Duration>0?"，时长 "+info.Duration.ToString("0.0",CultureInfo.InvariantCulture)+" 秒":""));
+                }else{
+                    log("实际素材："+info.Width+" × "+info.Height+"，视频 "+info.Video+"，"+(info.HasAudio?"音频 "+info.Audio:"无音轨"));
+                    if(info.Height<720&&String.IsNullOrEmpty(cookies))log("目前取得的清晰度较低；可能是原片或站点权限所限。需要时可导入 cookies 登录文件再试。");
+                }
                 string finished=source;
-                if(options.Compatible){
+                if(options.Compatible&&!options.Music){
                     extension=".mp4";finished=Path.Combine(stage,"PR-ready.partial.mp4");
                     progress.Report(new Update(info.CanCopy?"封装为 MP4（保留原编码）…":"转换为 PR 兼容 MP4…"));
                     Action<string,bool> report=(line,error)=>{
@@ -116,12 +130,14 @@ namespace BiliGreenDownloader {
                     progress.Report(new Update("验证最终 MP4…"));var check=MediaInfo.Probe(tools.Ffprobe,finished,token);
                     if(check.Video!="h264"||check.Pixel!="yuv420p"||(info.HasAudio&&check.Audio!="aac")||(info.Duration>1&&check.Duration<info.Duration-Math.Max(1,info.Duration*.02)))throw new InvalidOperationException("最终 MP4 未通过编码或时长检查，未标记为成功。");
                 }
-                token.ThrowIfCancellationRequested();string name=Core.SafeName(title)+(options.Compatible?"_PR":"_原始")+extension;
+                token.ThrowIfCancellationRequested();string name=Core.SafeName(title)+(options.Music?"_音乐":(options.Compatible?"_PR":"_原始"))+extension;
                 string destination=Path.Combine(outputFolder,name);int suffix=2;
                 while(File.Exists(destination)){destination=Path.Combine(outputFolder,Path.GetFileNameWithoutExtension(name)+"_"+(suffix++)+extension);}
                 File.Move(finished,destination);completed=true;
                 progress.Report(new Update("下载完成",100));
-                return new DownloadResult{Path=destination,Title=title,Description=info.Width+" × "+info.Height+(options.Compatible?" · MP4":" · 原始编码")};
+                return new DownloadResult{Path=destination,Title=title,Description=options.Music
+                    ?("音乐 · "+info.Audio+(info.Duration>0?" · "+info.Duration.ToString("0.0",CultureInfo.InvariantCulture)+" 秒":""))
+                    :(info.Width+" × "+info.Height+(options.Compatible?" · MP4":" · 原始编码"))};
             } finally {
                 if(cookiePath!=""){try{File.Delete(cookiePath);}catch{log("临时登录文件未能清理，请关闭软件后删除输出目录中的 .BiliGreen-work 临时文件夹。");}}
                 if(completed){try{if(File.ReadAllText(marker,Encoding.UTF8)=="BiliGreenDownloader/1")Directory.Delete(stage,true);if(!Directory.EnumerateFileSystemEntries(workRoot).Any())Directory.Delete(workRoot);}catch{log("素材已保存；少量临时文件未能清理。");}}
