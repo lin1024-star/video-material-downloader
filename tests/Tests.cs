@@ -167,6 +167,34 @@ internal static class Tests {
             Check(many.Contains("12 个候选"),"many case says the count");
             Check(many.Contains("分 P"),"many case gives the right fix");
         });
+        // ---- 1.2.1：下载提速 ----
+        Test("download engine asks for parallel work and retries",()=>{
+            var a=Core.DownloadArgs("https://www.bilibili.com/video/BV13x41117TL",Path.Combine(root,"speed args"),"",tools,false);
+            int i=a.IndexOf("--concurrent-fragments");Check(i>=0&&i+1<a.Count&&a[i+1]=="8","parallel fragments 8");
+            Check(a.Contains("--http-chunk-size")&&a[a.IndexOf("--http-chunk-size")+1]=="10M","chunk size 10M");
+            Check(a.Contains("--throttled-rate")&&a[a.IndexOf("--throttled-rate")+1]=="200K","throttled rate 200K");
+            Check(a.IndexOf("--retries")>=0&&a[a.IndexOf("--retries")+1]=="10","retries 10");
+            Check(a.IndexOf("--fragment-retries")>=0&&a[a.IndexOf("--fragment-retries")+1]=="10","fragment retries 10");
+            var m=Core.DownloadArgs("https://www.bilibili.com/video/BV13x41117TL",Path.Combine(root,"speed args music"),"",tools,false,true);
+            Check(m.IndexOf("--concurrent-fragments")>=0&&m[m.IndexOf("--concurrent-fragments")+1]=="8","music mode also uses 8");
+        });
+        Test("component downloads try the accelerated route first",()=>{
+            var urls=RuntimeSetup.MirrorCandidates("https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp.exe");
+            Check(urls.Length==2,"two candidates");
+            Check(urls[0].StartsWith("https://gh-proxy.com/"),"accelerated first");
+            Check(urls[1].StartsWith("https://github.com/"),"official last");
+            Check(RuntimeSetup.Proxy=="https://gh-proxy.com/","proxy constant");
+            Check(RuntimeSetup.FfmpegBuildZip.Contains("BtbN/FFmpeg-Builds"),"BtbN source");
+            Check(RuntimeSetup.FfmpegBuildChecksums.EndsWith("checksums.sha256"),"BtbN checksum file");
+        });
+        Test("component checksum parsers only accept the real lines",()=>{
+            string h=new string('a',64),f=new string('b',64);
+            Check(RuntimeSetup.YtDlpHashFrom(h+"  yt-dlp.exe")==h,"yt-dlp hash line");
+            Check(RuntimeSetup.YtDlpHashFrom(h+"  yt-dlp.exe\r\n")==h,"CRLF tolerated");
+            Check(RuntimeSetup.YtDlpHashFrom("nope")==null,"garbage rejected");
+            Check(RuntimeSetup.FfmpegBuildHashFrom(f+"  ffmpeg-master-latest-win64-gpl.zip")==f,"BtbN hash line");
+            Check(RuntimeSetup.FfmpegBuildHashFrom(f+"  ffmpeg-master-latest-win64-gpl-shared.zip")==null,"shared build rejected");
+        });
         Console.WriteLine("RESULT "+passed+" passed, "+failed+" failed");return failed==0?0:1;
     }
 }

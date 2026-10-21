@@ -9,8 +9,14 @@ using System.Threading;
 
 namespace BiliGreenDownloader {
     internal static class RuntimeSetup {
+        internal const string Proxy="https://gh-proxy.com/";
         internal const string YtBase="https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/";
         internal const string FfmpegZip="https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+        internal const string FfmpegBuildZip="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
+        internal const string FfmpegBuildChecksums="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/checksums.sha256";
+        internal static string[] MirrorCandidates(string url){return new[]{Proxy+url,url};}
+        internal static string YtDlpHashFrom(string sums){var m=Regex.Match(sums??"",@"(?m)^([a-fA-F0-9]{64})\s+\*?yt-dlp\.exe\s*$");return m.Success?m.Groups[1].Value.ToLowerInvariant():null;}
+        internal static string FfmpegBuildHashFrom(string sums){var m=Regex.Match(sums??"",@"(?im)^([a-f0-9]{64})\s+\*?ffmpeg-master-latest-win64-gpl\.zip\s*$");return m.Success?m.Groups[1].Value.ToLowerInvariant():null;}
         internal static string Root {get{return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BiliGreenDownloader");}}
         internal static string Tools {get{return Path.Combine(Root,"tools");}}
         internal static ToolPaths Paths(string directory) {return new ToolPaths{YtDlp=Path.Combine(directory,"yt-dlp.exe"),Ffmpeg=Path.Combine(directory,"ffmpeg.exe"),Ffprobe=Path.Combine(directory,"ffprobe.exe")};}
@@ -22,20 +28,17 @@ namespace BiliGreenDownloader {
             var paths=Paths(Tools);
             if(update||!IsPe64(paths.YtDlp)){
                 progress.Report(new Update("首次准备 / 更新下载引擎：连接官方发布站点…"));
-                string sums=GetText(YtBase+"SHA2-256SUMS",token);
-                var m=Regex.Match(sums,@"(?m)^([a-fA-F0-9]{64})\s+\*?yt-dlp\.exe\s*$");
-                if(!m.Success)throw new IOException("没有取得下载引擎的完整性校验信息，请稍后重试。");
-                string expected=m.Groups[1].Value.ToLowerInvariant();string staged=Path.Combine(Tools,"yt-dlp-"+expected.Substring(0,12)+".new");
-                Fetch(YtBase+"yt-dlp.exe",staged,expected,token,progress,"准备下载引擎");
+                string sums=GetTextAny(YtBase+"SHA2-256SUMS",token);
+                string expected=YtDlpHashFrom(sums);
+                if(expected==null)throw new IOException("没有取得下载引擎的完整性校验信息，请稍后重试。");
+                string staged=Path.Combine(Tools,"yt-dlp-"+expected.Substring(0,12)+".new");
+                FetchAny(YtBase+"yt-dlp.exe",staged,expected,token,progress,"准备下载引擎");
                 if(!IsPe64(staged))throw new IOException("下载引擎不是有效的 Windows 64 位程序。");
                 if(File.Exists(paths.YtDlp))File.Replace(staged,paths.YtDlp,null);else File.Move(staged,paths.YtDlp);
             }
             if(!IsPe64(paths.Ffmpeg)||!IsPe64(paths.Ffprobe)){
-                progress.Report(new Update("首次准备音视频组件（当前约 109 MB），以后无需重复下载…"));
-                var m=Regex.Match(GetText(FfmpegZip+".sha256",token),@"(?i)\b[a-f0-9]{64}\b");
-                if(!m.Success)throw new IOException("没有取得音视频组件校验信息，请稍后重试。");
-                string zip=Path.Combine(Tools,"ffmpeg-"+m.Value.Substring(0,12)+".zip");
-                Fetch(FfmpegZip,zip,m.Value.ToLowerInvariant(),token,progress,"准备音视频组件");
+                progress.Report(new Update("首次准备音视频组件（约 190 MB，自动走国内加速线路），以后无需重复下载…"));
+                string zip=FetchFfmpeg(token,progress);
                 string stage=Path.Combine(Tools,"unpack-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(stage);
                 try{
                     ExtractTools(zip,stage,token);
@@ -47,6 +50,23 @@ namespace BiliGreenDownloader {
             }
             token.ThrowIfCancellationRequested();progress.Report(new Update("下载组件已就绪",100));return paths;
         }
+        static string FetchFfmpeg(CancellationToken token,IProgress<Update> progress) {
+            Exception last=null;
+            try{
+                string hash=FfmpegBuildHashFrom(GetTextAny(FfmpegBuildChecksums,token));
+                if(hash!=null){
+                    string z=Path.Combine(Tools,"ffmpeg-"+hash.Substring(0,12)+".zip");
+                    FetchAny(FfmpegBuildZip,z,hash,token,progress,"准备音视频组件");
+                    return z;
+                }
+            }catch(OperationCanceledException){throw;}
+            catch(Exception ex){last=ex;progress.Report(new Update("加速线路不可用，改用官方源…"));}
+            var g=Regex.Match(GetTextAny(FfmpegZip+".sha256",token),@"(?i)\b[a-f0-9]{64}\b");
+            if(!g.Success)throw new IOException("没有取得音视频组件校验信息，请稍后重试。",last);
+            string expected=g.Value.ToLowerInvariant();string zip=Path.Combine(Tools,"ffmpeg-"+expected.Substring(0,12)+".zip");
+            FetchAny(FfmpegZip,zip,expected,token,progress,"准备音视频组件");
+            return zip;
+        }
         internal static void ExtractTools(string zip,string stage,CancellationToken token) {
             using(var z=ZipFile.OpenRead(zip))foreach(string name in new[]{"ffmpeg.exe","ffprobe.exe"}){
                 token.ThrowIfCancellationRequested();var candidates=z.Entries.Where(e=>e.FullName.Replace('\\','/').EndsWith("/bin/"+name,StringComparison.OrdinalIgnoreCase)||e.FullName.Equals(name,StringComparison.OrdinalIgnoreCase)).ToArray();
@@ -54,6 +74,24 @@ namespace BiliGreenDownloader {
                 // Ignore archive paths entirely: only two known basenames are written.
                 using(var input=candidates[0].Open())using(var output=File.Create(Path.Combine(stage,name))){byte[] b=new byte[131072];int n;while((n=input.Read(b,0,b.Length))>0){token.ThrowIfCancellationRequested();output.Write(b,0,n);}}
             }
+        }
+        internal static string GetTextAny(string url,CancellationToken token) {
+            Exception last=null;
+            foreach(string candidate in MirrorCandidates(url)){
+                try{return GetText(candidate,token);}
+                catch(OperationCanceledException){throw;}
+                catch(Exception ex){last=ex;}
+            }
+            throw new IOException("组件校验信息下载失败，请检查网络后重试。",last);
+        }
+        internal static void FetchAny(string url,string destination,string hash,CancellationToken token,IProgress<Update> progress,string label) {
+            Exception last=null;
+            foreach(string candidate in MirrorCandidates(url)){
+                try{Fetch(candidate,destination,hash,token,progress,label);return;}
+                catch(OperationCanceledException){throw;}
+                catch(IOException ex){last=ex;}
+            }
+            throw new IOException("下载组件失败。请检查能否访问 GitHub / BtbN / gyan.dev（国内网络会自动走加速线路，已下载部分会自动续传），再点击重试；也可使用“导入已有组件”。",last);
         }
         static HttpWebRequest Request(string url) {var r=(HttpWebRequest)WebRequest.Create(url);r.UserAgent="BiliGreenDownloader/1.0";r.Timeout=25000;r.ReadWriteTimeout=25000;r.AllowAutoRedirect=true;r.MaximumAutomaticRedirections=8;return r;}
         internal static string GetText(string url,CancellationToken token) {
@@ -65,7 +103,7 @@ namespace BiliGreenDownloader {
         internal static void Fetch(string url,string destination,string hash,CancellationToken token,IProgress<Update> progress,string label) {
             if(File.Exists(destination)&&Core.Hash(destination)==hash)return;
             string partial=destination+".part";Exception last=null;
-            for(int attempt=0;attempt<3;attempt++){
+            for(int attempt=0;attempt<8;attempt++){
                 token.ThrowIfCancellationRequested();long offset=File.Exists(partial)?new FileInfo(partial).Length:0;var request=Request(url);if(offset>0)request.AddRange(offset);
                 try{
                     using(token.Register(request.Abort))using(var response=(HttpWebResponse)request.GetResponse()){
@@ -75,8 +113,10 @@ namespace BiliGreenDownloader {
                         if(!append)offset=0;
                         long total=response.ContentLength>0?offset+response.ContentLength:0,received=offset;if(total>500L*1024*1024)throw new IOException("组件文件大小异常。");
                         using(var input=response.GetResponseStream())using(var output=new FileStream(partial,append?FileMode.Append:FileMode.Create,FileAccess.Write,FileShare.Read)){
-                            byte[] b=new byte[131072];int n;DateTime lastReport=DateTime.MinValue;
-                            while((n=input.Read(b,0,b.Length))>0){token.ThrowIfCancellationRequested();output.Write(b,0,n);received+=n;if(received>500L*1024*1024)throw new IOException("组件文件过大。");if((DateTime.UtcNow-lastReport).TotalMilliseconds>200){progress.Report(new Update(label+"："+(received/1048576.0).ToString("0.0")+" MB",total>0?(int)Math.Min(99,100*received/total):-1));lastReport=DateTime.UtcNow;}}
+                            byte[] b=new byte[131072];int n;DateTime lastReport=DateTime.MinValue,lastData=DateTime.UtcNow;
+                            using(var watchdog=new Timer(_=>{try{if((DateTime.UtcNow-lastData).TotalSeconds>30)request.Abort();}catch{}},null,3000,3000)){
+                                while((n=input.Read(b,0,b.Length))>0){token.ThrowIfCancellationRequested();output.Write(b,0,n);received+=n;lastData=DateTime.UtcNow;if(received>500L*1024*1024)throw new IOException("组件文件过大。");if((DateTime.UtcNow-lastReport).TotalMilliseconds>200){progress.Report(new Update(label+"："+(received/1048576.0).ToString("0.0")+" MB",total>0?(int)Math.Min(99,100*received/total):-1));lastReport=DateTime.UtcNow;}}
+                            }
                         }
                         if(total>0&&received!=total)throw new IOException("组件下载中断，将尝试续传。");
                     }
@@ -88,7 +128,7 @@ namespace BiliGreenDownloader {
                 catch(IOException ex){last=ex;}
                 if(attempt<2&&token.WaitHandle.WaitOne(750))token.ThrowIfCancellationRequested();
             }
-            throw new IOException("下载组件失败。请检查能否访问 GitHub 和 gyan.dev，再点击重试；也可使用“导入已有组件”。",last);
+            throw new IOException("下载组件失败。请检查能否访问 GitHub / BtbN / gyan.dev，再点击重试；也可使用“导入已有组件”。",last);
         }
         internal static ToolPaths Import(string folder) {
             string[] roots={folder,Path.Combine(folder,"bin"),Path.Combine(folder,"tools")};

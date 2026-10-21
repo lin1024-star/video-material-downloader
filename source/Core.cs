@@ -17,7 +17,7 @@ namespace BiliGreenDownloader {
     internal sealed class DownloadOptions {public string Url,Folder,Cookies="";public bool Limit1080,Compatible=true,Music=false;}
     internal sealed class DownloadResult {public string Path,Title,Description;}
     internal static class Core {
-        internal const string Version="1.2.0";
+        internal const string Version="1.2.1";
         internal static readonly string[] BilibiliHosts=new[]{"www.bilibili.com","bilibili.com","m.bilibili.com"};
         internal static readonly string[] YouTubeHosts=new[]{"www.youtube.com","youtube.com","m.youtube.com","music.youtube.com","youtu.be","www.youtu.be"};
         internal static bool IsYouTubeHost(string host){return YouTubeHosts.Contains((host??"").ToLowerInvariant());}
@@ -99,7 +99,7 @@ namespace BiliGreenDownloader {
         internal static bool IsBilibiliDomain(string domain){return domain=="bilibili.com"||domain.EndsWith(".bilibili.com",StringComparison.Ordinal);}
         internal static bool IsYouTubeDomain(string domain){return domain=="youtube.com"||domain.EndsWith(".youtube.com",StringComparison.Ordinal)||domain=="google.com"||domain.EndsWith(".google.com",StringComparison.Ordinal)||domain=="youtu.be"||domain.EndsWith(".youtu.be",StringComparison.Ordinal);}
         internal static List<string> DownloadArgs(string url,string stage,string cookie,ToolPaths tools,bool limit1080,bool music=false) {
-            var a=new List<string>{"--ignore-config","--no-plugin-dirs","--no-playlist","--playlist-items","1","--no-simulate","--newline","--progress","--no-colors","--encoding","utf-8","--windows-filenames","--continue","--retries","3","--fragment-retries","3","--abort-on-unavailable-fragments","--socket-timeout","25","--concurrent-fragments","2","--ffmpeg-location",Path.GetDirectoryName(tools.Ffmpeg)};
+            var a=new List<string>{"--ignore-config","--no-plugin-dirs","--no-playlist","--playlist-items","1","--no-simulate","--newline","--progress","--no-colors","--encoding","utf-8","--windows-filenames","--continue","--retries","10","--fragment-retries","10","--abort-on-unavailable-fragments","--socket-timeout","25","--concurrent-fragments","8","--http-chunk-size","10M","--throttled-rate","200K","--ffmpeg-location",Path.GetDirectoryName(tools.Ffmpeg)};
             if(music){
                 // 只下载音乐：取最好的纯音频轨，交给 yt-dlp 用 ffmpeg 转成 MP3。
                 // 注意不要沿用下面那组选画面的条件（-S res/vcodec）—— 对纯音频没有意义，

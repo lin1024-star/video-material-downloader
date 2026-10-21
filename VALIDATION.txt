@@ -212,3 +212,45 @@ B 站素材下载器 1.0 — 验证记录
   风控和网络条件会影响可下载内容。
 
 对应测试源码在 tests 文件夹中。
+
+
+视频素材下载器 1.2.1
+日期：2026-10-20
+
+本次变更：**下载提速**（起因：使用者转述“下载器速度慢”）。版本号 1.2.0 → 1.2.1
+（source/Core.cs 的 Version；source/AssemblyInfo.cs 的 AssemblyVersion / AssemblyFileVersion）。
+
+做了什么
+- yt-dlp 下载参数：`--concurrent-fragments` 2 → 8；`--retries` / `--fragment-retries` 3 → 10；
+  新增 `--http-chunk-size 10M`、`--throttled-rate 200K`。音乐模式同样生效。
+- 组件下载：优先走国内加速线路（`https://gh-proxy.com/` + GitHub 原始地址兜底）；
+  FFmpeg 改为优先取 BtbN 的 Windows 构建（`ffmpeg-master-latest-win64-gpl.zip`），
+  用 BtbN 官方 `checksums.sha256` 核对；BtbN 不可用时退回 gyan.dev 官方源。
+  yt-dlp 仍用官方 `SHA2-256SUMS` 校验，走加速线路只是换链路，文件字节不变。
+- 下载健壮性：读循环加「30 秒没有新数据就掐断」看门狗，单文件最多 8 次续传重试；
+  加速线路失败自动换源。仍保持「校验不过不安装」。
+
+实测（本机，2026-10-20 晚）
+- 下视频：同一 B 站 1080p（文件 59.6 MB），旧参数 18.8 秒（3.17 MB/s）→ 新参数 13.7 秒（4.34 MB/s）；
+  16 并发为 16.5 秒（3.61 MB/s），比 8 并发慢，所以固定 8。
+- 首次组件：新代码从零下载 yt-dlp（17.8 MB）+ BtbN FFmpeg 包（191 MB）并在本机解出
+  ffmpeg.exe 169 MB / ffprobe.exe 169 MB，**总用时 126 秒**；旧日志里同一台机器约 20 分钟
+  （23:01:43 “检查并更新下载组件” → 23:22:07 “下载组件已就绪”）。
+- 换源/续传路径已实装，但公共加速线路不稳定（测试中遇到一次卡住），
+  看门狗会在 30 秒后掐断并续传或退回官方源；最坏情况退回 gyan.dev 官方源（约 0.1 MB/s，较慢但能完成）。
+
+本次通过的检查（Windows 10 / 11 x64 实机）
+- 回归套件 **46 项全部通过，0 失败**（原 43 + 新增 3）。
+- 新增 3 项：
+  1. 视频模式与音乐模式的下载参数都带 `--concurrent-fragments 8`、`--http-chunk-size 10M`、
+     `--throttled-rate 200K`、重试 10
+  2. 组件下载候选顺序：加速线路在前、GitHub 原始地址在后；BtbN 源与校验文件常量正确
+  3. 校验解析：只接受真正的 `yt-dlp.exe` / `ffmpeg-master-latest-win64-gpl.zip` 行，
+     共享版（-shared）与乱文本会被拒绝
+- 端到端：用新代码从零下载三个组件成功（126 秒），用新下载的组件再跑一遍完整回归套件 —— 通过。
+- 主程序用 source\build.cmd 重新编译，0 错误；产物 95,232 字节、FileVersion 1.2.1.0。
+
+已知取舍
+- 加速线路是公共免费服务，可能限速或临时不可用；失败自动换源，使用者无感。
+- BtbN 是 FFmpeg 的 master 构建（比 gyan 的 release 构建新）；已用新组件跑完整回归验证本项目用到的功能。
+- 「并发 8」是折中：再高（16）实测反而慢，且更容易触发站点限流（412/429）。

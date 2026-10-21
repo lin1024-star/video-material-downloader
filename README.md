@@ -1,13 +1,30 @@
-# 视频素材下载器 1.2.0
+# 视频素材下载器 1.2.1
 
 Windows 10 / 11 64 位小工具。粘贴 B 站或 YouTube 视频链接，下载视频素材（含绿幕素材），**也可以只下载音乐**。
 
 **👉 [点这里下载最新版](https://github.com/lin1024-star/video-material-downloader/releases/latest)**
 
-> **【在哪下载】** 打开页面后**一直往下滚到最底部**，找到 **Assets** 这一段，点里面那个**带文件大小、以 `.zip` 结尾**的文件（例如 `BiliGreenDownloader_1.2.0_Windows.zip`）。
+> **【在哪下载】** 打开页面后**一直往下滚到最底部**，找到 **Assets** 这一段，点里面那个**带文件大小、以 `.zip` 结尾**的文件（例如 `BiliGreenDownloader_1.2.1_Windows.zip`）。
 > 它下面还有 `Source code (zip)` 和 `Source code (tar.gz)`，那是 GitHub 自动生成的源码快照，**不用点**。
 
 下载后完整解压，双击 `BiliGreenDownloader.exe` 就能用。
+
+## 1.2.1 更新方法
+
+关闭旧版软件，解压本包，把其中的 `BiliGreenDownloader.exe` 和
+`BiliGreenDownloader.exe.config` 覆盖到原文件夹，也可以直接运行新解压目录里的程序。
+打开后，窗口标题应显示 **1.2.1**。已有下载组件、下载记录和设置继续复用；
+想让组件也换成新线路，点一次「更新下载组件」即可（不点也能用）。
+
+### 1.2.1：下载更快
+
+- **下视频**：yt-dlp 的并发分片从 2 提到 8，并加上了分块下载与限速重试。
+  本机实测同一条 B 站 1080p（59.6 MB）：**18.8 秒 → 13.7 秒（3.17 → 4.34 MB/s，快 37%）**。
+  16 并发反而掉速，所以定在 8。
+- **首次准备组件**：yt-dlp 和 FFmpeg 的下载优先走国内加速线路（GitHub 加速 + BtbN 构建），
+  组件合计约 190 MB，本机实测 **126 秒**下完（原来约 20 分钟）；加速线路失败会自动退回官方源，
+  已经下到的部分会续传，不用从头再来。
+- 组件校验方式不变：仍然核对发布方提供的 SHA-256，校验不过就不会装。
 
 ## 1.2.0 更新方法
 
@@ -26,7 +43,7 @@ Windows 10 / 11 64 位小工具。粘贴 B 站或 YouTube 视频链接，下载�
   没有画面就没意义。这个勾选状态会记住，下次打开还在。
 - 音乐模式不需要转成 MP4，所以通常**比下视频快**。
 
-（历史）**1.1.1** 把报错统一成「出了什么事 → 我实际看到的是 → 你可以这样办」四段，
+（历史）**1.2.1** 下载提速（并发 8 / 组件走加速线路 / 失败续传换源）。**1.1.1** 把报错统一成「出了什么事 → 我实际看到的是 → 你可以这样办」四段，
 并修掉报错函数自身的一个崩溃。**1.1.0** 新增 YouTube 支持。**1.0.1** 修复了准备组件时的
 “找不到方法：System.String.Split(Char, StringSplitOptions)”错误，以及分享短链、
 登录文件和输出路径处理中的同类框架接口兼容问题。
@@ -41,7 +58,7 @@ Windows 10 / 11 64 位小工具。粘贴 B 站或 YouTube 视频链接，下载�
 
 不用安装 Python、CUDA，也不用输入命令。主程序使用 Windows 的 .NET Framework 4.5 或以上版本，Windows 10 / 11 一般已带有更高版本。
 
-**首次运行会联网下载组件，合计约 130 MB**，需要能访问 GitHub 和 gyan.dev。之后复用组件，不会每次下载都重新下载。程序压缩包本身很小，未捆绑模型、视频样本或大型运行组件。
+**首次运行会联网下载组件，合计约 190 MB**；程序会自动优先走国内加速线路，失败时退回官方源（GitHub / BtbN / gyan.dev）。之后复用组件，不会每次下载都重新下载。程序压缩包本身很小，未捆绑模型、视频样本或大型运行组件。
 
 ## 主要功能
 
@@ -67,7 +84,7 @@ Windows 10 / 11 64 位小工具。粘贴 B 站或 YouTube 视频链接，下载�
 
 ## 首次准备组件失败怎么办
 
-先检查是否能访问 GitHub 和 gyan.dev，然后重试。“更新下载组件”会更新 yt-dlp，并补齐缺失的音视频组件。
+先检查是否能访问 GitHub / BtbN / gyan.dev（国内网络会自动走加速线路），然后重试。“更新下载组件”会更新 yt-dlp，并补齐缺失的音视频组件。
 
 也可以用“导入已有组件”：选择包含下列三个 **Windows 64 位**文件的文件夹（也支持其 `bin` / `tools` 子目录）：
 
@@ -83,7 +100,8 @@ Windows 10 / 11 64 位小工具。粘贴 B 站或 YouTube 视频链接，下载�
 
 - yt-dlp：https://github.com/yt-dlp/yt-dlp
 - yt-dlp 当前下载通道：https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest
-- FFmpeg Windows 构建：https://www.gyan.dev/ffmpeg/builds/
+- FFmpeg Windows 构建（BtbN，默认加速线路）：https://github.com/BtbN/FFmpeg-Builds/releases
+- FFmpeg Windows 构建（gyan.dev，官方源兜底）：https://www.gyan.dev/ffmpeg/builds/
 - FFmpeg 项目：https://ffmpeg.org/
 
 ## 下载失败与清理
@@ -135,8 +153,8 @@ Windows 10 / 11 64 位小工具。粘贴 B 站或 YouTube 视频链接，下载�
 
 ## 测试范围
 
-详见 `VALIDATION.txt`。1.2.0 在 Windows 10 / 11 x64 实机编译，回归套件 **43 项全部通过**
-（含真实 FFmpeg 转码、VP9→H.264、取消与失败恢复、报错格式 6 项，以及只下载音乐的 5 项）。
+详见 `VALIDATION.txt`。1.2.1 在 Windows 10 / 11 x64 实机编译，回归套件 **46 项全部通过**
+（含真实 FFmpeg 转码、VP9→H.264、取消与失败恢复、报错格式 6 项、只下载音乐的 5 项，以及 1.2.1 新增的下载参数与组件源 3 项）。
 报错格式已在实机界面上人工确认。**「只下载音乐」的实机点选未做** —— 见 `VALIDATION.txt`。
 
 `source` 为主程序源码，`tests` 为测试辅助文件，普通使用不需要打开。源码可在带 .NET Framework 编译器的 Windows 电脑上运行 `source\build.cmd` 重建。
