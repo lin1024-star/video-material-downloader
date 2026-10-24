@@ -195,6 +195,40 @@ internal static class Tests {
             Check(RuntimeSetup.FfmpegBuildHashFrom(f+"  ffmpeg-master-latest-win64-gpl.zip")==f,"BtbN hash line");
             Check(RuntimeSetup.FfmpegBuildHashFrom(f+"  ffmpeg-master-latest-win64-gpl-shared.zip")==null,"shared build rejected");
         });
+        // ---- 1.2.2: supply-chain trust root / privacy / single version source ----
+        Test("checksum files go direct first, binaries stay accelerated",()=>{
+            const string sums="https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/SHA2-256SUMS";
+            var c=RuntimeSetup.ChecksumCandidates(sums);
+            Check(c.Length==2,"two candidates");
+            Check(c[0]==sums,"official source first for checksums");
+            Check(c[1].StartsWith("https://gh-proxy.com/"),"mirror only as fallback");
+            var b=RuntimeSetup.MirrorCandidates("https://github.com/x/y.exe");
+            Check(b[0].StartsWith("https://gh-proxy.com/"),"binaries keep the accelerated first route");
+        });
+        Test("diagnostics hide local paths and keep only the file name",()=>{
+            string home=Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string deep=Path.Combine(home,"客户项目","未公开","素材","x.mp4");
+            string masked=Diag.Mask(deep);
+            Check(!masked.Contains("未公开"),"folder names are not exposed: "+masked);
+            Check(masked.EndsWith("x.mp4"),"file name kept for diagnosis");
+            Check(masked.Contains("…")||masked.Contains("~"),"fold marker present");
+            string desc=Diag.Describe(deep);
+            Check(!desc.Contains("客户项目"),"Describe uses the masked path");
+            Check(Diag.Describe(Path.Combine(home,"a.txt")).Contains("~"),"home folder folded to ~");
+        });
+        Test("login file cache stays out of the material folder",()=>{
+            string local=Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            Check(Path.GetFullPath(Core.CookieCache).StartsWith(Path.GetFullPath(local),StringComparison.OrdinalIgnoreCase),"cache under LocalAppData: "+Core.CookieCache);
+            Check(!Core.CookieCache.Contains(".BiliGreen-work"),"not inside the output work folder");
+        });
+        Test("version is a single source (assembly / manifest / THIRD_PARTY)",()=>{
+            string v=typeof(Core).Assembly.GetName().Version.ToString();
+            Check(v.StartsWith(Core.Version+"."),"assembly version "+v+" follows Core.Version "+Core.Version);
+            string manifest=File.ReadAllText(Path.Combine("source","app.manifest"));
+            Check(manifest.Contains("assemblyIdentity version=\""+v+"\""),"manifest version follows assembly version");
+            string third=File.ReadAllText("THIRD_PARTY.txt");
+            Check(third.StartsWith("BiliGreenDownloader "+Core.Version),"THIRD_PARTY header follows Core.Version");
+        });
         Console.WriteLine("RESULT "+passed+" passed, "+failed+" failed");return failed==0?0:1;
     }
 }

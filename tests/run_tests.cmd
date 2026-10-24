@@ -19,6 +19,13 @@ setlocal
 cd /d "%~dp0.."
 set "ROOT=%CD%"
 
+rem keep AssemblyInfo / manifest / THIRD_PARTY in sync with Core.cs before compiling
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\source\version.ps1"
+if errorlevel 1 (
+  echo [ERROR] failed to sync version metadata
+  exit /b 1
+)
+
 set "CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if not exist "%CSC%" (
   echo [ERROR] .NET Framework compiler not found: %CSC%

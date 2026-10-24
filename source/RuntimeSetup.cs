@@ -15,6 +15,9 @@ namespace BiliGreenDownloader {
         internal const string FfmpegBuildZip="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
         internal const string FfmpegBuildChecksums="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/checksums.sha256";
         internal static string[] MirrorCandidates(string url){return new[]{Proxy+url,url};}
+        // 校验值不能走和"被校验文件"同一个通道：否则镜像可以同时替换校验值与文件，SHA-256 形同虚设。
+        // 所以校验文件先直连官方源，只有直连失败才降级镜像，并在界面上明说（2026-10-24）。
+        internal static string[] ChecksumCandidates(string url){return new[]{url,Proxy+url};}
         internal static string YtDlpHashFrom(string sums){var m=Regex.Match(sums??"",@"(?m)^([a-fA-F0-9]{64})\s+\*?yt-dlp\.exe\s*$");return m.Success?m.Groups[1].Value.ToLowerInvariant():null;}
         internal static string FfmpegBuildHashFrom(string sums){var m=Regex.Match(sums??"",@"(?im)^([a-f0-9]{64})\s+\*?ffmpeg-master-latest-win64-gpl\.zip\s*$");return m.Success?m.Groups[1].Value.ToLowerInvariant():null;}
         internal static string Root {get{return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BiliGreenDownloader");}}
@@ -23,12 +26,14 @@ namespace BiliGreenDownloader {
         internal static bool IsPe64(string path) {
             try{using(var f=File.OpenRead(path))using(var r=new BinaryReader(f)){if(f.Length<512||r.ReadUInt16()!=0x5a4d)return false;f.Position=0x3c;int offset=r.ReadInt32();if(offset<0||offset>f.Length-6)return false;f.Position=offset;return r.ReadUInt32()==0x4550&&r.ReadUInt16()==0x8664;}}catch{return false;}
         }
-        internal static ToolPaths Ensure(CancellationToken token,IProgress<Update> progress,bool update=false) {
-            ServicePointManager.SecurityProtocol|=SecurityProtocolType.Tls12;Directory.CreateDirectory(Tools);
+        internal static ToolPaths Ensure(CancellationToken token,IProgress<Update> progress,bool update=false,Action<string> log=null) {
+            // note：同时更新状态栏与日志，让"校验值降级走镜像"这类提醒不会一闪而过。
+            Action<string> note=m=>{try{progress.Report(new Update(m));}catch{}if(log!=null)try{log(m);}catch{}};
+            ServicePointManager.SecurityProtocol=SecurityProtocolType.Tls12;Directory.CreateDirectory(Tools);
             var paths=Paths(Tools);
             if(update||!IsPe64(paths.YtDlp)){
                 progress.Report(new Update("首次准备 / 更新下载引擎：连接官方发布站点…"));
-                string sums=GetTextAny(YtBase+"SHA2-256SUMS",token);
+                string sums=GetChecksumText(YtBase+"SHA2-256SUMS",token,note);
                 string expected=YtDlpHashFrom(sums);
                 if(expected==null)throw new IOException("没有取得下载引擎的完整性校验信息，请稍后重试。");
                 string staged=Path.Combine(Tools,"yt-dlp-"+expected.Substring(0,12)+".new");
@@ -38,7 +43,7 @@ namespace BiliGreenDownloader {
             }
             if(!IsPe64(paths.Ffmpeg)||!IsPe64(paths.Ffprobe)){
                 progress.Report(new Update("首次准备音视频组件（约 190 MB，自动走国内加速线路），以后无需重复下载…"));
-                string zip=FetchFfmpeg(token,progress);
+                string zip=FetchFfmpeg(token,progress,note);
                 string stage=Path.Combine(Tools,"unpack-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(stage);
                 try{
                     ExtractTools(zip,stage,token);
@@ -50,10 +55,10 @@ namespace BiliGreenDownloader {
             }
             token.ThrowIfCancellationRequested();progress.Report(new Update("下载组件已就绪",100));return paths;
         }
-        static string FetchFfmpeg(CancellationToken token,IProgress<Update> progress) {
+        static string FetchFfmpeg(CancellationToken token,IProgress<Update> progress,Action<string> note) {
             Exception last=null;
             try{
-                string hash=FfmpegBuildHashFrom(GetTextAny(FfmpegBuildChecksums,token));
+                string hash=FfmpegBuildHashFrom(GetChecksumText(FfmpegBuildChecksums,token,note));
                 if(hash!=null){
                     string z=Path.Combine(Tools,"ffmpeg-"+hash.Substring(0,12)+".zip");
                     FetchAny(FfmpegBuildZip,z,hash,token,progress,"准备音视频组件");
@@ -61,7 +66,7 @@ namespace BiliGreenDownloader {
                 }
             }catch(OperationCanceledException){throw;}
             catch(Exception ex){last=ex;progress.Report(new Update("加速线路不可用，改用官方源…"));}
-            var g=Regex.Match(GetTextAny(FfmpegZip+".sha256",token),@"(?i)\b[a-f0-9]{64}\b");
+            var g=Regex.Match(GetChecksumText(FfmpegZip+".sha256",token,note),@"(?i)\b[a-f0-9]{64}\b");
             if(!g.Success)throw new IOException("没有取得音视频组件校验信息，请稍后重试。",last);
             string expected=g.Value.ToLowerInvariant();string zip=Path.Combine(Tools,"ffmpeg-"+expected.Substring(0,12)+".zip");
             FetchAny(FfmpegZip,zip,expected,token,progress,"准备音视频组件");
@@ -84,6 +89,21 @@ namespace BiliGreenDownloader {
             }
             throw new IOException("组件校验信息下载失败，请检查网络后重试。",last);
         }
+        // 校验文件专用：官方直连优先；只有直连失败才走镜像，并且明确提示"安全性降低"。
+        internal static string GetChecksumText(string url,CancellationToken token,Action<string> note) {
+            Exception last=null;
+            foreach(string candidate in ChecksumCandidates(url)){
+                try{
+                    // 直连官方源给较短超时：国内直连 GitHub 常常挂死，不能让"多一次校验请求"变成几十秒等待。
+                    string text=GetText(candidate,token,candidate==url?12000:25000);
+                    if(candidate!=url&&note!=null)note("提示：这次没能直连官方源，组件校验值来自加速镜像（安全性低于官方直连）。");
+                    return text;
+                }
+                catch(OperationCanceledException){throw;}
+                catch(Exception ex){last=ex;}
+            }
+            throw new IOException("组件校验信息下载失败，请检查网络后重试。",last);
+        }
         internal static void FetchAny(string url,string destination,string hash,CancellationToken token,IProgress<Update> progress,string label) {
             Exception last=null;
             foreach(string candidate in MirrorCandidates(url)){
@@ -93,9 +113,9 @@ namespace BiliGreenDownloader {
             }
             throw new IOException("下载组件失败。请检查能否访问 GitHub / BtbN / gyan.dev（国内网络会自动走加速线路，已下载部分会自动续传），再点击重试；也可使用“导入已有组件”。",last);
         }
-        static HttpWebRequest Request(string url) {var r=(HttpWebRequest)WebRequest.Create(url);r.UserAgent="BiliGreenDownloader/1.0";r.Timeout=25000;r.ReadWriteTimeout=25000;r.AllowAutoRedirect=true;r.MaximumAutomaticRedirections=8;return r;}
-        internal static string GetText(string url,CancellationToken token) {
-            token.ThrowIfCancellationRequested();var r=Request(url);
+        static HttpWebRequest Request(string url,int timeoutMs=25000) {var r=(HttpWebRequest)WebRequest.Create(url);r.UserAgent="BiliGreenDownloader/1.0";r.Timeout=timeoutMs;r.ReadWriteTimeout=timeoutMs;r.AllowAutoRedirect=true;r.MaximumAutomaticRedirections=8;return r;}
+        internal static string GetText(string url,CancellationToken token,int timeoutMs=25000) {
+            token.ThrowIfCancellationRequested();var r=Request(url,timeoutMs);
             try{using(token.Register(r.Abort))using(var response=(HttpWebResponse)r.GetResponse())using(var input=response.GetResponseStream())using(var mem=new MemoryStream()){
                 if(response.ResponseUri.Scheme!="https")throw new IOException("组件站点没有提供安全下载连接。");byte[] b=new byte[8192];int n;while((n=input.Read(b,0,b.Length))>0){token.ThrowIfCancellationRequested();mem.Write(b,0,n);if(mem.Length>2*1024*1024)throw new IOException("组件校验文件异常。");}return Encoding.UTF8.GetString(mem.ToArray());
             }}catch(WebException){token.ThrowIfCancellationRequested();throw;}

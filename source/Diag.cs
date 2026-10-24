@@ -32,11 +32,11 @@ namespace BiliGreenDownloader {
             if (String.IsNullOrEmpty(path)) return "（没有路径）";
             try {
                 if (File.Exists(path)) {
-                    return path + "（文件在，" + Size(new FileInfo(path).Length) + "）";
+                    return Mask(path) + "（文件在，" + Size(new FileInfo(path).Length) + "）";
                 }
-                if (!Directory.Exists(path)) return path + "（这个路径不存在）";
+                if (!Directory.Exists(path)) return Mask(path) + "（这个路径不存在）";
                 string[] names = Directory.GetFileSystemEntries(path);
-                if (names.Length == 0) return path + "（目录在，但是空的）";
+                if (names.Length == 0) return Mask(path) + "（目录在，但是空的）";
                 // 这里刻意用最朴素的写法：不用 LINQ 方法组。
                 // 上一版写成 names.Take(8).Select(Path.GetFileName) 会在运行时崩 ——
                 // 就是 VALIDATION.txt 里记过的老坑：编译环境支持的 API
@@ -48,10 +48,26 @@ namespace BiliGreenDownloader {
                     sb.Append(FileNameOf(names[i]));
                 }
                 string more = names.Length > 8 ? " 等 " + names.Length + " 项" : "";
-                return path + "（里面有：" + sb.ToString() + more + "）";
-            } catch (Exception e) {
-                return path + "（打不开：" + e.GetType().Name + "）";
+                return Mask(path) + "（里面有：" + sb.ToString() + more + "）";
+            } catch (Exception) {
+                return Mask(path) + "（打不开）";
             }
+        }
+
+        /// <summary>
+        /// 报错里显示的路径要做脱敏 —— 这份报错是鼓励使用者直接发出来的。
+        /// %USERPROFILE% 折叠成 ~；层级超过两级的只留最后一级（客户名 / 项目名不进公开 Issue）。
+        /// 2026-10-24 评估发现的问题：原来直接把完整路径和目录里的文件名打进去。
+        /// </summary>
+        public static string Mask(string path) {
+            if (String.IsNullOrEmpty(path)) return "（没有路径）";
+            string text = path;
+            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (!String.IsNullOrEmpty(home) && text.StartsWith(home, StringComparison.OrdinalIgnoreCase))
+                text = "~" + text.Substring(home.Length);
+            string[] parts = text.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length > 2) text = "…\\" + parts[parts.Length - 1];
+            return text;
         }
 
         /// <summary>自己从路径里取文件名，不依赖 Path.GetFileName 的重载解析。</summary>

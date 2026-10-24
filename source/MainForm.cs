@@ -98,7 +98,7 @@ namespace BiliGreenDownloader {
             try{options=new DownloadOptions{Url=Core.NormalizeUrl(link.Text),Folder=Path.GetFullPath(folder.Text),Limit1080=quality.SelectedIndex==1,Compatible=compatible.Checked&&!music.Checked,Music=music.Checked,Cookies=cookiePath};}catch(Exception ex){ShowError(ex.Message);return;}
             var job=NewJob(options.Url);SetBusy(true);cancellation=new CancellationTokenSource();var token=cancellation.Token;var progress=Progress();tabs.SelectedIndex=0;AppendLog("开始下载任务；"+(options.Music?"只下载音乐（MP3）":(options.Compatible?"输出 PR 兼容 MP4":"保留原始编码")));
             try{
-                var result=await Task.Run(()=>{var tools=RuntimeSetup.Ensure(token,progress);return Downloader.Download(options,tools,token,progress,AppendLog);});
+                var result=await Task.Run(()=>{var tools=RuntimeSetup.Ensure(token,progress,false,AppendLog);return Downloader.Download(options,tools,token,progress,AppendLog);});
                 job.Title=result.Title;job.Path=result.Path;job.Status="成功";job.Detail=result.Description;status.Text="已保存："+Path.GetFileName(result.Path);bar.Style=ProgressBarStyle.Continuous;bar.Value=100;AppendLog("下载完成："+Path.GetFileName(result.Path));
             }catch(OperationCanceledException){job.Status="取消";job.Detail="已停止，可再次下载同一链接以复用片段。";status.Text="任务已取消。";AppendLog(job.Detail);}
             catch(Exception ex){if(token.IsCancellationRequested){job.Status="取消";job.Detail="任务已停止，可重试。";}else{job.Status="失败";job.Detail=Core.Redact(ex.Message);AppendLog("失败："+ex.Message);if(ex.InnerException!=null)AppendLog(ex.InnerException.Message);}status.Text=job.Detail;tabs.SelectedIndex=1;}
@@ -106,7 +106,7 @@ namespace BiliGreenDownloader {
         }
         async void UpdateTools(object sender,EventArgs e){
             if(busy)return;SetBusy(true);cancellation=new CancellationTokenSource();var progress=Progress();AppendLog("检查并更新下载组件…");
-            try{await Task.Run(()=>RuntimeSetup.Ensure(cancellation.Token,progress,true));status.Text="下载组件已就绪。";AppendLog(status.Text);}catch(OperationCanceledException){status.Text="组件更新已取消。";}catch(Exception ex){status.Text="组件更新失败，详见日志。";AppendLog(ex.Message);if(ex.InnerException!=null)AppendLog(ex.InnerException.Message);tabs.SelectedIndex=1;}finally{FinishOperation();}
+            try{await Task.Run(()=>RuntimeSetup.Ensure(cancellation.Token,progress,true,AppendLog));status.Text="下载组件已就绪。";AppendLog(status.Text);}catch(OperationCanceledException){status.Text="组件更新已取消。";}catch(Exception ex){status.Text="组件更新失败，详见日志。";AppendLog(ex.Message);if(ex.InnerException!=null)AppendLog(ex.InnerException.Message);tabs.SelectedIndex=1;}finally{FinishOperation();}
         }
         async void ImportTools(object sender,EventArgs e){
             if(busy)return;string path;using(var dialog=new FolderBrowserDialog{Description="选择包含 yt-dlp.exe、ffmpeg.exe、ffprobe.exe 的文件夹"}){if(dialog.ShowDialog(this)!=DialogResult.OK)return;path=dialog.SelectedPath;}

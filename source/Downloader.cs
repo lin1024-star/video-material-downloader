@@ -23,10 +23,18 @@ namespace BiliGreenDownloader {
             string marker=Path.Combine(stage,"BiliGreen.work");
             if(Directory.GetFileSystemEntries(stage).Length>0&&!File.Exists(marker))throw new IOException("临时目录中存在未知文件，请更换输出目录。");
             File.WriteAllText(marker,"BiliGreenDownloader/1",Encoding.UTF8);
-            string cookiePath=String.IsNullOrEmpty(cookies)?"":Path.Combine(stage,"cookies.txt");
+            // 登录文件不再写进用户的素材目录（那里可能是 OneDrive / 共享盘）：2026-10-24 起放到本机缓存，
+            // 加 Temporary 属性、下载结束即删；异常退出留下的残留在下次开始时清掉。
+            // 说明：yt-dlp 只能读明文 Netscape cookies，所以对文件加密没有意义 —— 关键是它不能跟着素材目录上云。
+            string cookiePath="";
+            if(!String.IsNullOrEmpty(cookies)){
+                string cookieDir=Core.CookieCache;Directory.CreateDirectory(cookieDir);
+                foreach(string stale in Directory.GetFiles(cookieDir,"cookies-*.txt")){try{File.Delete(stale);}catch{}}
+                cookiePath=Path.Combine(cookieDir,"cookies-"+Guid.NewGuid().ToString("N").Substring(0,16)+".txt");
+            }
             bool completed=false;
             try {
-                if(cookiePath!="")File.WriteAllText(cookiePath,cookies,new UTF8Encoding(false));
+                if(cookiePath!=""){File.WriteAllText(cookiePath,cookies,new UTF8Encoding(false));File.SetAttributes(cookiePath,File.GetAttributes(cookiePath)|FileAttributes.Temporary|FileAttributes.Hidden);}
                 progress.Report(new Update(options.Music?"解析并下载音频…":"解析视频并下载音视频…"));bool previewOnly=false;object eventGate=new object();
                 var raw=Runner.Run(tools.YtDlp,Core.DownloadArgs(url,stage,cookiePath,tools,options.Limit1080,options.Music),stage,token,(line,error)=>{
                     if(line.StartsWith("__BILI_RESULT__"))return;
@@ -139,7 +147,7 @@ namespace BiliGreenDownloader {
                     ?("音乐 · "+info.Audio+(info.Duration>0?" · "+info.Duration.ToString("0.0",CultureInfo.InvariantCulture)+" 秒":""))
                     :(info.Width+" × "+info.Height+(options.Compatible?" · MP4":" · 原始编码"))};
             } finally {
-                if(cookiePath!=""){try{File.Delete(cookiePath);}catch{log("临时登录文件未能清理，请关闭软件后删除输出目录中的 .BiliGreen-work 临时文件夹。");}}
+                if(cookiePath!=""){try{File.Delete(cookiePath);}catch{log("临时登录文件未能清理（位于本机缓存 %LOCALAPPDATA%\\BiliGreenDownloader\\cache，下次开始时会自动清理）。");}}
                 if(completed){try{if(File.ReadAllText(marker,Encoding.UTF8)=="BiliGreenDownloader/1")Directory.Delete(stage,true);if(!Directory.EnumerateFileSystemEntries(workRoot).Any())Directory.Delete(workRoot);}catch{log("素材已保存；少量临时文件未能清理。");}}
             }
         }

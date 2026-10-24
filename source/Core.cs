@@ -17,7 +17,7 @@ namespace BiliGreenDownloader {
     internal sealed class DownloadOptions {public string Url,Folder,Cookies="";public bool Limit1080,Compatible=true,Music=false;}
     internal sealed class DownloadResult {public string Path,Title,Description;}
     internal static class Core {
-        internal const string Version="1.2.1";
+        internal const string Version="1.2.2";
         internal static readonly string[] BilibiliHosts=new[]{"www.bilibili.com","bilibili.com","m.bilibili.com"};
         internal static readonly string[] YouTubeHosts=new[]{"www.youtube.com","youtube.com","m.youtube.com","music.youtube.com","youtu.be","www.youtu.be"};
         internal static bool IsYouTubeHost(string host){return YouTubeHosts.Contains((host??"").ToLowerInvariant());}
@@ -74,6 +74,8 @@ namespace BiliGreenDownloader {
         internal static string Arguments(IEnumerable<string> values){return String.Join(" ",values.Select(Quote));}
         internal static string Hash(string path){using(var h=SHA256.Create())using(var f=File.OpenRead(path))return BitConverter.ToString(h.ComputeHash(f)).Replace("-","").ToLowerInvariant();}
         internal static string TextHash(string text){using(var h=SHA256.Create())return BitConverter.ToString(h.ComputeHash(Encoding.UTF8.GetBytes(text))).Replace("-","").ToLowerInvariant();}
+        // 登录文件只放本机缓存，绝不写进用户选择的素材目录（那里可能是 OneDrive / 共享盘）。2026-10-24
+        internal static string CookieCache{get{return Path.Combine(RuntimeSetup.Root,"cache");}}
         internal static string SafeName(string title) {
             string name=Regex.Replace(title??"视频素材",@"[<>:""/\\|?*\x00-\x1f]","_").Trim().TrimEnd('.',' ');
             if(name.Length>90)name=name.Substring(0,90).TrimEnd();if(name.Length>0&&Char.IsHighSurrogate(name[name.Length-1]))name=name.Substring(0,name.Length-1);
