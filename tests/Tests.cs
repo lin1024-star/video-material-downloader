@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Windows.Forms;
 using BiliGreenDownloader;
 
 internal static class Tests {
@@ -228,6 +229,77 @@ internal static class Tests {
             Check(manifest.Contains("assemblyIdentity version=\""+v+"\""),"manifest version follows assembly version");
             string third=File.ReadAllText("THIRD_PARTY.txt");
             Check(third.StartsWith("BiliGreenDownloader "+Core.Version),"THIRD_PARTY header follows Core.Version");
+        });
+        // ---- 1.3: pick a page when a Bilibili link has no p= ----
+        Test("bilibili links without p need a pick, with p do not",()=>{
+            Check(Core.NeedsPagePick("https://www.bilibili.com/video/BV13x41117TL"),"no p needs pick");
+            Check(!Core.NeedsPagePick("https://www.bilibili.com/video/BV13x41117TL?p=3"),"p given, no pick");
+            Check(!Core.NeedsPagePick("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),"youtube untouched");
+            Check(!Core.NeedsPagePick("not a url"),"garbage tolerated");
+        });
+        Test("multi-page probe parses titles, durations and indexes",()=>{
+            string json="{\"_type\":\"playlist\",\"title\":\"测试合集\",\"entries\":["+
+                "{\"_type\":\"url\",\"title\":\"第一集\",\"url\":\"https://www.bilibili.com/video/BV1xx?p=1\",\"duration\":100.5},"+
+                "{\"title\":\"第二集\",\"url\":\"https://www.bilibili.com/video/BV1xx?p=2\",\"duration\":200}]}";
+            var info=PlaylistProbe.Parse(json);
+            Check(info.IsMultiPage,"multi page");
+            Check(info.Pages.Count==2,"two pages");
+            Check(info.Pages[0].Index==1&&info.Pages[1].Index==2,"indexes");
+            Check(info.Pages[0].Title=="第一集"&&info.Pages[1].Title=="第二集","titles");
+            Check(Math.Abs(info.Pages[0].Duration-100.5)<0.01&&Math.Abs(info.Pages[1].Duration-200)<0.01,"durations");
+        });
+        Test("probe handles single video and refuses garbage",()=>{
+            var single=PlaylistProbe.Parse("{\"_type\":\"video\",\"title\":\"单个视频\",\"duration\":60}");
+            Check(!single.IsMultiPage&&single.Pages.Count==1,"single video");
+            Check(single.Pages[0].Title=="单个视频","title kept");
+            Throws(()=>PlaylistProbe.Parse("not json"));
+            Throws(()=>PlaylistProbe.Parse("{\"_type\":\"playlist\",\"entries\":[]}"));
+        });
+        Test("page link is built only for bilibili and prefers the engine url",()=>{
+            Check(PlaylistProbe.PageUrl("https://www.bilibili.com/video/BV13x41117TL",2)=="https://www.bilibili.com/video/BV13x41117TL?p=2","p url");
+            Check(PlaylistProbe.PageUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ",2)==null,"youtube refused");
+            var page=new PlaylistPage{Index=2,Url="https://www.bilibili.com/video/BV1yy?p=2"};
+            Check(PlaylistProbe.ChosenUrl("https://www.bilibili.com/video/BV13x41117TL",page)=="https://www.bilibili.com/video/BV1yy?p=2","engine url preferred");
+            var empty=new PlaylistPage{Index=3};
+            Check(PlaylistProbe.ChosenUrl("https://www.bilibili.com/video/BV13x41117TL",empty)=="https://www.bilibili.com/video/BV13x41117TL?p=3","fallback to p=");
+        });
+        Test("version is 1.3.0",()=>{
+            Check(Core.Version=="1.3.0","version 1.3.0");
+        });
+        Test("live bilibili multi-page probe (set BILI_GREEN_LIVE=1 to run)",()=>{
+            // 真实网络探测：默认跳过，避免回归测试依赖外网；手动验证时设环境变量。
+            string live=Environment.GetEnvironmentVariable("BILI_GREEN_LIVE");
+            if(live!="1"){return;}
+            var info=PlaylistProbe.BilibiliPages("https://www.bilibili.com/video/BV1kt411k7Rq",CancellationToken.None);
+            Check(info!=null&&info.IsMultiPage,"live multi page");
+            Check(info.Pages.Count>=2,"at least two pages");
+            Check(!String.IsNullOrEmpty(info.Pages[0].Title),"page title present");
+            Check(info.Pages[0].Duration>0,"duration present");
+            Console.WriteLine("  live: "+info.Title+" / "+info.Pages.Count+" P; first="+info.Pages[0].Title);
+        });
+        Test("page picker dialog builds one row per page",()=>{
+            Exception failure=null;
+            var thread=new Thread(()=>{
+                try{
+                    var info=new PlaylistInfo{Title="测试合集"};
+                    info.Pages.Add(new PlaylistPage{Index=1,Title="第一集",Duration=100});
+                    info.Pages.Add(new PlaylistPage{Index=2,Title="第二集",Duration=3661});
+                    info.Pages.Add(new PlaylistPage{Index=3,Title="第三集"});
+                    using(var dialog=new PlaylistPickDialog(info)){
+                        Check(dialog.SelectedPage==0,"nothing chosen before the user clicks");
+                        var list=dialog.Controls.OfType<ListView>().First();
+                        Check(list.Items.Count==3,"one row per page");
+                        Check(list.Items[0].Selected,"first page selected by default");
+                        Check(list.Items[1].SubItems.Count==3,"three columns");
+                        Check(list.Items[1].SubItems[1].Text=="第二集","title column");
+                        Check(list.Items[1].SubItems[2].Text=="1:01:01","hour duration formatted");
+                        Check(list.Items[0].SubItems[2].Text=="1:40","minute duration formatted");
+                    }
+                }catch(Exception ex){failure=ex;}
+            });
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();thread.Join();
+            if(failure!=null)throw failure;
         });
         Console.WriteLine("RESULT "+passed+" passed, "+failed+" failed");return failed==0?0:1;
     }

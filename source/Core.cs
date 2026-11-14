@@ -17,10 +17,18 @@ namespace BiliGreenDownloader {
     internal sealed class DownloadOptions {public string Url,Folder,Cookies="";public bool Limit1080,Compatible=true,Music=false;}
     internal sealed class DownloadResult {public string Path,Title,Description;}
     internal static class Core {
-        internal const string Version="1.2.2";
+        internal const string Version="1.3.0";
         internal static readonly string[] BilibiliHosts=new[]{"www.bilibili.com","bilibili.com","m.bilibili.com"};
         internal static readonly string[] YouTubeHosts=new[]{"www.youtube.com","youtube.com","m.youtube.com","music.youtube.com","youtu.be","www.youtu.be"};
         internal static bool IsYouTubeHost(string host){return YouTubeHosts.Contains((host??"").ToLowerInvariant());}
+        // 2026-11-14：B 站链接没带分 P 参数时，先探测是不是多 P，多 P 就弹窗让使用者选
+        // （新手不知道要自己拼 ?p=2）。带 p= 的链接视为已明确指定，不再打扰。
+        internal static bool NeedsPagePick(string normalizedUrl) {
+            Uri uri;
+            if(!Uri.TryCreate(normalizedUrl??"",UriKind.Absolute,out uri))return false;
+            if(!BilibiliHosts.Contains(uri.Host.ToLowerInvariant()))return false;
+            return !Regex.IsMatch(uri.Query,@"(?:^|[?&])p=(\d+)(?:&|$)");
+        }
         internal static string NormalizeUrl(string input) {
             input=(input??"").Trim();
             if(Regex.IsMatch(input,@"^BV[0-9A-Za-z]{10}$"))return "https://www.bilibili.com/video/"+input;

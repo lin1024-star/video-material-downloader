@@ -98,7 +98,34 @@ namespace BiliGreenDownloader {
             try{options=new DownloadOptions{Url=Core.NormalizeUrl(link.Text),Folder=Path.GetFullPath(folder.Text),Limit1080=quality.SelectedIndex==1,Compatible=compatible.Checked&&!music.Checked,Music=music.Checked,Cookies=cookiePath};}catch(Exception ex){ShowError(ex.Message);return;}
             var job=NewJob(options.Url);SetBusy(true);cancellation=new CancellationTokenSource();var token=cancellation.Token;var progress=Progress();tabs.SelectedIndex=0;AppendLog("开始下载任务；"+(options.Music?"只下载音乐（MP3）":(options.Compatible?"输出 PR 兼容 MP4":"保留原始编码")));
             try{
-                var result=await Task.Run(()=>{var tools=RuntimeSetup.Ensure(token,progress,false,AppendLog);return Downloader.Download(options,tools,token,progress,AppendLog);});
+                // 2026-11-14：B 站链接没有分 P 参数时，先探测是不是多 P；是就让使用者选。
+                // 探测要先有 yt-dlp，所以先把组件准备好（首次会下载约 190 MB）。
+                ToolPaths tools=null;
+                if(Core.NeedsPagePick(options.Url)){
+                    tools=await Task.Run(()=>RuntimeSetup.Ensure(token,progress,false,AppendLog));
+                    progress.Report(new Update("正在读取分 P 信息…"));
+                    PlaylistInfo pages=null;
+                    try{pages=await Task.Run(()=>PlaylistProbe.Probe(tools.YtDlp,options.Url,token));}
+                    catch(OperationCanceledException){throw;}
+                    catch(Exception ex){AppendLog("没有读取到分 P 信息，按原来的方式下载第一 P："+Core.Redact(ex.Message));}
+                    if(pages!=null&&pages.IsMultiPage){
+                        int page=0;
+                        using(var dialog=new PlaylistPickDialog(pages)){if(dialog.ShowDialog(this)==DialogResult.OK)page=dialog.SelectedPage;}
+                        if(page<1){
+                            job.Status="取消";job.Detail="已取消：没有选择要下载的 P。";status.Text=job.Detail;AppendLog(job.Detail);
+                            return;
+                        }
+                        string chosen=PlaylistProbe.ChosenUrl(options.Url,pages.Pages[page-1]);
+                        if(String.IsNullOrEmpty(chosen)){
+                            job.Status="失败";job.Detail="这个链接不是 B 站分 P 链接，无法按 P 下载。";status.Text=job.Detail;
+                            return;
+                        }
+                        options.Url=chosen;
+                        job.Title="第 "+page+" P："+pages.Pages[page-1].Title;
+                        AppendLog("已选择第 "+page+" P（共 "+pages.Pages.Count+" P）。");
+                    }
+                }
+                var result=await Task.Run(()=>{if(tools==null)tools=RuntimeSetup.Ensure(token,progress,false,AppendLog);return Downloader.Download(options,tools,token,progress,AppendLog);});
                 job.Title=result.Title;job.Path=result.Path;job.Status="成功";job.Detail=result.Description;status.Text="已保存："+Path.GetFileName(result.Path);bar.Style=ProgressBarStyle.Continuous;bar.Value=100;AppendLog("下载完成："+Path.GetFileName(result.Path));
             }catch(OperationCanceledException){job.Status="取消";job.Detail="已停止，可再次下载同一链接以复用片段。";status.Text="任务已取消。";AppendLog(job.Detail);}
             catch(Exception ex){if(token.IsCancellationRequested){job.Status="取消";job.Detail="任务已停止，可重试。";}else{job.Status="失败";job.Detail=Core.Redact(ex.Message);AppendLog("失败："+ex.Message);if(ex.InnerException!=null)AppendLog(ex.InnerException.Message);}status.Text=job.Detail;tabs.SelectedIndex=1;}
@@ -120,7 +147,7 @@ namespace BiliGreenDownloader {
         void OpenSelected(){if(history.SelectedItems.Count==0)return;var job=(Job)history.SelectedItems[0].Tag;if(job.Path==""||!File.Exists(job.Path)){ShowError("该任务没有已保存的文件，或文件已被移动。可在任务详情中查看原因。");return;}try{if(Environment.OSVersion.Platform==PlatformID.Win32NT)Process.Start(new ProcessStartInfo("explorer.exe","/select,"+Core.Quote(job.Path)){UseShellExecute=false});else OpenFolder(Path.GetDirectoryName(job.Path));}catch(Exception ex){ShowError(ex.Message);}}
         void ExportLog(object sender,EventArgs e){using(var dialog=new SaveFileDialog{Title="导出当前日志",Filter="日志文本 (*.txt)|*.txt",FileName="视频下载日志_"+DateTime.Now.ToString("yyyyMMdd_HHmmss")+".txt"}){if(dialog.ShowDialog(this)==DialogResult.OK)try{File.WriteAllText(dialog.FileName,logBox.Text,new UTF8Encoding(true));}catch(Exception ex){ShowError(ex.Message);}}}
         void ShowError(string message){MessageBox.Show(this,Core.Redact(message),"视频素材下载器",MessageBoxButtons.OK,MessageBoxIcon.Information);}
-        void ShowHelp(){MessageBox.Show(this,"1. 粘贴 B 站（BV 号 / 视频链接 / b23.tv 短链）或 YouTube 链接，选保存位置，点“开始下载”。\n2. 首次使用自动下载官方 yt-dlp 与 FFmpeg 组件，共约 190 MB（会自动走国内加速线路），之后重复使用。若连接失败，可点“导入已有组件”。\n3. 默认输出 H.264 / AAC 的 MP4；必要时用 CPU 转码，不需要 CUDA。\n4. 清晰度受原片与账号权限限制。“最高画质”指当前能取得的最高画质。需要登录时可选择自己导出的 B 站或 YouTube cookies.txt；软件不会读取浏览器密码。\n5. B 站分 P 链接下载指定的一 P；不带 p 参数下载第一 P。暂不支持直播、番剧和空间批量下载。YouTube 只下载链接对应的单个视频，不下载整个播放列表。\n6. 下载 YouTube 需要网络能访问该站点；若提示要求验证身份，请先开启代理后重试。\n7. 下载记录和日志会保留。未完成的片段留在保存位置的 .BiliGreen-work 中，重试时尽量复用。", "使用说明",MessageBoxButtons.OK,MessageBoxIcon.Information);}
+        void ShowHelp(){MessageBox.Show(this,"1. 粘贴 B 站（BV 号 / 视频链接 / b23.tv 短链）或 YouTube 链接，选保存位置，点“开始下载”。\n2. 首次使用自动下载官方 yt-dlp 与 FFmpeg 组件，共约 190 MB（会自动走国内加速线路），之后重复使用。若连接失败，可点“导入已有组件”。\n3. 默认输出 H.264 / AAC 的 MP4；必要时用 CPU 转码，不需要 CUDA。\n4. 清晰度受原片与账号权限限制。“最高画质”指当前能取得的最高画质。需要登录时可选择自己导出的 B 站或 YouTube cookies.txt；软件不会读取浏览器密码。\n5. B 站多 P 视频：链接不带 p= 时，开始下载前会先读出这个视频一共几 P，弹窗让你选要哪一 P（不用自己拼链接）；带 p= 的直接下指定那一 P。暂不支持直播、番剧和空间批量下载。YouTube 只下载链接对应的单个视频，不下载整个播放列表。\n6. 下载 YouTube 需要网络能访问该站点；若提示要求验证身份，请先开启代理后重试。\n7. 下载记录和日志会保留。未完成的片段留在保存位置的 .BiliGreen-work 中，重试时尽量复用。", "使用说明",MessageBoxButtons.OK,MessageBoxIcon.Information);}
         void HandleClosing(object sender,FormClosingEventArgs e){
             if(busy){e.Cancel=true;if(cancellation==null){MessageBox.Show(this,"正在复制组件，请完成后关闭。","请稍等");return;}if(!closeAfter&&MessageBox.Show(this,"当前任务尚未完成，停止任务并退出？","退出",MessageBoxButtons.YesNo,MessageBoxIcon.Question)==DialogResult.Yes){closeAfter=true;cancel.Enabled=false;status.Text="正在停止任务…";cancellation.Cancel();}return;}SaveState();
         }

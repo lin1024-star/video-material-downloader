@@ -35,7 +35,7 @@ if "%BILI_FFMPEG%"=="" set "BILI_FFMPEG=ffmpeg"
 if "%BILI_FFPROBE%"=="" set "BILI_FFPROBE=ffprobe"
 if "%BILI_TEST_PYTHON%"=="" set "BILI_TEST_PYTHON=python"
 set "REF=/reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll"
-set "SRC=source\AssemblyInfo.cs source\Json.cs source\Diag.cs source\Core.cs source\RuntimeSetup.cs source\Downloader.cs source\MainForm.cs"
+set "SRC=source\AssemblyInfo.cs source\Json.cs source\Diag.cs source\Core.cs source\RuntimeSetup.cs source\Downloader.cs source\Playlist.cs source\PlaylistPickDialog.cs source\MainForm.cs"
 
 set "TMP=%ROOT%\_testrun"
 set "FIX=%TMP%\fixtures"

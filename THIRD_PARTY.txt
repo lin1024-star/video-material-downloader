@@ -1,4 +1,4 @@
-BiliGreenDownloader 1.2.2
+BiliGreenDownloader 1.3.0
 
 The launcher and original application source are provided under the MIT
 License (see LICENSE.txt).
